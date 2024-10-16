@@ -1,4 +1,2 @@
-*.DNG
-*.NEF
-*.jpg
-*.png
+go.sum
+main
