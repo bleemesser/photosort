@@ -97,7 +97,11 @@ func findFiles(photoDir string) (filePaths []string) {
 			return err
 		}
 		if fi, err := os.Stat(path); err == nil && !fi.IsDir() {
-			filePaths = append(filePaths, path)
+			// ignore dotfiles
+			if !strings.HasPrefix(fi.Name(), ".") {
+				filePaths = append(filePaths, path)
+			}
+
 		}
 
 		return nil
@@ -324,25 +328,19 @@ func (l *Library) SyncInto(l2 *Library) {
 	l2.WriteToFile()
 }
 
-// library .RemovePhoto method (does not modify file system)
-func (l *Library) RemovePhoto(photo Photo) {
-	// remove photo from library
-	for i, p := range l.Photos {
-		if p.Path == photo.Path {
-			l.Photos = append(l.Photos[:i], l.Photos[i+1:]...)
-			break
-		}
-	}
-}
 
 func (l *Library) Update() {
 	// go through all photos and ensure they exist. if not, remove them
+	bar := bar.Default(int64(len(l.Photos)), "Updating photos")
+	newPhotos := l.Photos
 	for _, photo := range l.Photos {
 		if _, err := os.Stat(filepath.Join(l.Directory, photo.Path)); os.IsNotExist(err) {
 			fmt.Println("Removing photo", photo.Name)
-			l.RemovePhoto(photo)
+			newPhotos = append(newPhotos[:0], newPhotos[1:]...)
 		}
+		bar.Add(1)
 	}
+	l.Photos = newPhotos
 	l.WriteToFile()
 }
 
@@ -351,6 +349,7 @@ func extractPhotos(filePaths []string, et *exif.Exiftool) (photos []Photo) {
 	for _, path := range filePaths {
 		fields := getExif(path, et)
 		if !strings.Contains(fields["MIMEType"].(string), "image") {
+			bar.Add(1)
 			continue
 		}
 		
