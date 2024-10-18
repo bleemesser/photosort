@@ -259,7 +259,7 @@ func (l *Library) AddPhoto(photo Photo, write bool) {
 						fmt.Println("Error creating directory for photo:", err)
 						os.Exit(1)
 					}
-					fmt.Println("cp", photo.Sidecar, newSidecarPath)
+					// fmt.Println("cp", photo.Sidecar, newSidecarPath)
 
 					err = exec.Command("cp", photo.Sidecar, newSidecarPath).Run()
 					if err != nil {
@@ -290,7 +290,7 @@ func (l *Library) AddPhoto(photo Photo, write bool) {
 	}
 	// copy photo's sidecar file to new path
 	if photo.Sidecar != "" {
-		fmt.Println("cp", photo.Sidecar, newSidecarPath)
+		// fmt.Println("cp", photo.Sidecar, newSidecarPath)
 		err := exec.Command("cp", photo.Sidecar, newSidecarPath).Run()
 		if err != nil {
 			fmt.Println("Error copying sidecar file:", err)
@@ -348,6 +348,10 @@ func extractPhotos(filePaths []string, et *exif.Exiftool) (photos []Photo) {
 	bar := bar.Default(int64(len(filePaths)), "Extracting photos")
 	for _, path := range filePaths {
 		fields := getExif(path, et)
+		if fields == nil {
+			bar.Add(1)
+			continue
+		}
 		if !strings.Contains(fields["MIMEType"].(string), "image") {
 			bar.Add(1)
 			continue
@@ -370,7 +374,6 @@ func extractPhotos(filePaths []string, et *exif.Exiftool) (photos []Photo) {
 			date.Year = t.Year()
 			date.Month = int(t.Month())
 			date.Day = t.Day()
-			continue
 		}
 
 		// see if there is a sidecar file
