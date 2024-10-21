@@ -9,13 +9,16 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	// "database/sql"
 
 	bar "github.com/schollz/progressbar/v3"
 
 	exif "github.com/barasher/go-exiftool"
+
+	// _ "github.com/glebarez/go-sqlite"
+
 )
 
-// -import -create
 func parseArgs() (dir1, dir2 string, action string) {
 	// Usage: photosort import <photo_dir> <library_dir>
 	// Usage: photosort create <library_dir>
