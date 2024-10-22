@@ -1,4 +1,4 @@
-module github.com/bleemesser/photoparse
+module github.com/bleemesser/photosort
 
 go 1.23.0
 
@@ -6,6 +6,7 @@ require (
 	github.com/barasher/go-exiftool v1.10.0
 	github.com/glebarez/go-sqlite v1.22.0
 	github.com/schollz/progressbar/v3 v3.16.1
+	google.golang.org/genproto v0.0.0-20241021214115-324edc3d5d38
 )
 
 require (
@@ -17,6 +18,7 @@ require (
 	github.com/rivo/uniseg v0.4.7 // indirect
 	golang.org/x/sys v0.25.0 // indirect
 	golang.org/x/term v0.24.0 // indirect
+	google.golang.org/protobuf v1.35.1 // indirect
 	modernc.org/libc v1.37.6 // indirect
 	modernc.org/mathutil v1.6.0 // indirect
 	modernc.org/memory v1.7.2 // indirect
