@@ -143,7 +143,7 @@ func (lib *Library) Import(dir string, doCopy bool) error {
 	if err != nil {
 		return err
 	}
-	photos := GetPhotos(files)
+	photos := GetPhotos(files) // gets latest hashes 
 	bar := bar.Default(int64(len(photos)), "Importing photos")
 	for _, photo := range photos {
 		existingID, err := photoExists(lib.db, photo.Hash)
@@ -251,7 +251,11 @@ func (lib *Library) UpdateDB() error {
 		}
 		if len(photo.Sidecars) > 0 {
 			for _, sidecar := range photo.Sidecars {
-				if _, err := os.Stat(sidecar.Path); os.IsNotExist(err) {
+				hash, err := HashFile(sidecar.Path, photo.Filename)
+				if err != nil {
+					return err
+				}
+				if _, err := os.Stat(sidecar.Path); os.IsNotExist(err) || hash != sidecar.Hash {
 					_, err := lib.db.Exec("DELETE FROM sidecars WHERE id = ?", sidecar.ID)
 					if err != nil {
 						return err
@@ -379,6 +383,8 @@ func (lib *Library) SyncFrom(lib2 *Library) error { // hash needs to be updated 
 				if err != nil {
 					return err
 				}
+				// TODO: may need to update the hash of the modified sidecar
+				
 				// Insert or update sidecar in the database
 				if sidecarExists {
 					_, err = lib.db.Exec("UPDATE sidecars SET filename = ?, relpath = ?, filetype = ?, created = ?, modified = ?, hash = ? WHERE photo_id = ? AND hash = ?", 

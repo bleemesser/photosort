@@ -83,7 +83,7 @@ func main() {
 			fmt.Println(err)
 			os.Exit(1)
 		}
-
+		// update the libraries files (remove any files that have been deleted, add any new files, update hashes)
 		err = lib.UpdateDB()
 		if err != nil {
 			fmt.Println(err)
@@ -98,6 +98,13 @@ func main() {
 
 		// call the sync function which will sync the two libraries
 		err = lib2.SyncFrom(lib)
+		if err != nil {
+			fmt.Println(err)
+			os.Exit(1)
+		}
+
+		// update again to remove duplicate entries caused by changed sidecar files
+		err = lib2.UpdateDB()
 		if err != nil {
 			fmt.Println(err)
 			os.Exit(1)
