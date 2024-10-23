@@ -13,3 +13,7 @@ Photosort is a command line tool. It is run by executing the binary file with th
 - import: `./photosort import <photo_dir> <library_dir>` - Import photos from the specified directory into the library. The photos and sidecars will be copied into the library directory and organized by date.
 - update: `./photosort update <library_dir>` - Update the library's database with any photo removals or additions, and any sidecar changes.
 - sync: `./photosort sync <src_lib_dir> <target_lib_dir>` - Sync changes from the source library to the target library. This will copy any new photos and sidecars from the source library to the target library, and update all sidecars in the target library. No deletions will be made.
+
+## Todo
+- [ ] Add safeguards for missing exiftool
+- [ ] Add safeguards for when dir exists but library does not when library is expected
