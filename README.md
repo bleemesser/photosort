@@ -4,7 +4,7 @@ A CLI tool to sort and sync libraries of photos and their accompanying sidecar f
 - Clone the repository to a directory of your choice.
 - To build the program, you will need to have Go installed on your system. You can download it [here](https://golang.org/dl/).
 - Once you have Go installed, you can build the program by running the following command from within the project directory:
-```go build -o photosort```
+```go mod tidy && go build -o photosort```
 - Photosort depends on exiftool to read metadata from photos. It must be installed and in your path. It is available in homebrew and apt, and can be downloaded from the [official website](https://exiftool.org/).
 
 ## Usage
