@@ -42,6 +42,10 @@ func GetPhotos(files []string) []Photo {
 			bar.Add(1)
 			continue
 		}
+		if fields["MIMEType"] == nil {
+			bar.Add(1)
+			continue
+		}
 		if !strings.Contains(fields["MIMEType"].(string), "image") {
 			bar.Add(1)
 			continue

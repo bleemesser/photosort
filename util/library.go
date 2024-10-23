@@ -5,15 +5,13 @@ import (
 	"os"
 	"time"
 
-	"path/filepath"
 	"database/sql"
+	"path/filepath"
 
 	_ "github.com/glebarez/go-sqlite"
 	bar "github.com/schollz/progressbar/v3"
 )
 
-// use a sqlite database to create a library that stores
-// all the information about the photos
 type Library struct {
 	db *sql.DB
 	root string
@@ -140,7 +138,7 @@ func photoExists(db *sql.DB, hash string) (int, error) {
 	return existingID, nil
 }
 
-func (lib *Library) Import(dir string) error {
+func (lib *Library) Import(dir string, doCopy bool) error {
 	files, err := WalkDir(dir)
 	if err != nil {
 		return err
@@ -168,9 +166,11 @@ func (lib *Library) Import(dir string) error {
 					// Sidecar doesn't exist, so copy and insert it
 					sidecarDate := photo.Created.Format("2006/01-02/")
 					newPath := filepath.Join(lib.root, sidecarDate, sidecar.Filename)
-					err = Copy(sidecar.Path, newPath)
-					if err != nil {
-						return err
+					if doCopy {
+						err = Copy(sidecar.Path, newPath)
+						if err != nil {
+							return err
+						}
 					}
 					_, err = lib.db.Exec("INSERT INTO sidecars (photo_id, filename, relpath, filetype, created, modified, hash) VALUES (?, ?, ?, ?, ?, ?, ?)", photo.ID, sidecar.Filename, sidecarDate, sidecar.Filetype, sidecar.Created, sidecar.Modified, sidecar.Hash)
 					if err != nil {
@@ -182,9 +182,11 @@ func (lib *Library) Import(dir string) error {
 			// The photo does not exist, so copy and insert it
 			photoDate := photo.Created.Format("2006/01-02/")
 			newPath := filepath.Join(lib.root, photoDate, photo.Filename)
-			err = Copy(photo.Path, newPath)
-			if err != nil {
-				return err
+			if doCopy {
+				err = Copy(photo.Path, newPath)
+				if err != nil {
+					return err
+				}
 			}
 
 			// Insert
@@ -210,9 +212,11 @@ func (lib *Library) Import(dir string) error {
 				if !exists {
 					sidecarDate := photo.Created.Format("2006/01-02/")
 					newPath := filepath.Join(lib.root, sidecarDate, sidecar.Filename)
-					err = Copy(sidecar.Path, newPath)
-					if err != nil {
-						return err
+					if doCopy {
+						err = Copy(sidecar.Path, newPath)
+						if err != nil {
+							return err
+						}
 					}
 					_, err = lib.db.Exec("INSERT INTO sidecars (photo_id, filename, relpath, filetype, created, modified, hash) VALUES (?, ?, ?, ?, ?, ?, ?)", photo.ID, sidecar.Filename, sidecarDate, sidecar.Filetype, sidecar.Created, sidecar.Modified, sidecar.Hash)
 					if err != nil {
@@ -237,6 +241,7 @@ func (lib *Library) UpdateDB() error {
 
 	// for each photo, check if the file exists
 	// if it doesn't, delete the photo from the database
+	bar := bar.Default(int64(len(photos)), "Culling removed files")
 	for _, photo := range photos {
 		if _, err := os.Stat(photo.Path); os.IsNotExist(err) {
 			_, err := lib.db.Exec("DELETE FROM photos WHERE id = ?", photo.ID)
@@ -254,7 +259,15 @@ func (lib *Library) UpdateDB() error {
 				}
 			}
 		}
+		bar.Add(1)
 	}
+
+	// look for new files
+	err = lib.Import(lib.root, false)
+	if err != nil {
+		return err
+	}
+
 
 	return nil
 }

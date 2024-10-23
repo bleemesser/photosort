@@ -1,21 +1,8 @@
 package main
 
 import (
-	// "encoding/json"
 	"fmt"
 	"os"
-	// "os/exec"
-	// "path/filepath"
-	// "strconv"
-	// "strings"
-	// "time"
-	// "database/sql"
-
-	// bar "github.com/schollz/progressbar/v3"
-
-	// exif "github.com/barasher/go-exiftool"
-
-	// _ "github.com/glebarez/go-sqlite"
 
 	"github.com/bleemesser/photosort/util"
 )
@@ -47,7 +34,7 @@ func main() {
 		}
 		defer lib.Close()
 		// call the import function which will copy all the photos and sidecars and add them to the library
-		err = lib.Import(args.GetDir(0))
+		err = lib.Import(args.GetDir(0), true)
 		if err != nil {
 			fmt.Println(err)
 			os.Exit(1)
