@@ -1,21 +1,15 @@
 package util
 
 import (
-	// "encoding/json"
 	"fmt"
 	"os"
 	"time"
 
-	// "os/exec"
 	"path/filepath"
-	// "strconv"
-	// "strings"
-	// "time"
 	"database/sql"
 
 	_ "github.com/glebarez/go-sqlite"
 	bar "github.com/schollz/progressbar/v3"
-	// exif "github.com/barasher/go-exiftool"
 )
 
 // use a sqlite database to create a library that stores
@@ -123,6 +117,29 @@ func (lib *Library) Close() {
 	lib.db.Close()
 }
 
+// Returns true if the sidecar exists, otherwise returns false
+func sidecarExists(db *sql.DB, photoID int, hash string) (bool, error) {
+	var exists bool
+	err := db.QueryRow("SELECT EXISTS(SELECT 1 FROM sidecars WHERE photo_id = ? AND hash = ?)", photoID, hash).Scan(&exists)
+	if err != nil {
+		return false, err
+	}
+	return exists, nil
+}
+
+// Returns the ID of the photo if it exists, otherwise returns 0
+func photoExists(db *sql.DB, hash string) (int, error) {
+	var existingID int
+	row := db.QueryRow("SELECT id FROM photos WHERE hash = ?", hash)
+	err := row.Scan(&existingID)
+	if err != nil && err != sql.ErrNoRows {
+		return 0, err
+	} else if err == sql.ErrNoRows {
+		return 0, nil
+	}
+	return existingID, nil
+}
+
 func (lib *Library) Import(dir string) error {
 	files, err := WalkDir(dir)
 	if err != nil {
@@ -131,10 +148,8 @@ func (lib *Library) Import(dir string) error {
 	photos := GetPhotos(files)
 	bar := bar.Default(int64(len(photos)), "Importing photos")
 	for _, photo := range photos {
-		var existingID int
-		// Check if the photo already exists in the database
-		err = lib.db.QueryRow("SELECT id FROM photos WHERE hash = ?", photo.Hash).Scan(&existingID)
-		if err != nil && err != sql.ErrNoRows {
+		existingID, err := photoExists(lib.db, photo.Hash)
+		if err != nil {
 			return err
 		}
 
@@ -144,8 +159,7 @@ func (lib *Library) Import(dir string) error {
 
 			// Check for existing sidecars
 			for _, sidecar := range photo.Sidecars {
-				var sidecarExists bool
-				err = lib.db.QueryRow("SELECT EXISTS(SELECT 1 FROM sidecars WHERE photo_id = ? AND hash = ?)", photo.ID, sidecar.Hash).Scan(&sidecarExists)
+				sidecarExists, err := sidecarExists(lib.db, photo.ID, sidecar.Hash)
 				if err != nil {
 					return err
 				}
@@ -165,7 +179,7 @@ func (lib *Library) Import(dir string) error {
 				}
 			}
 		} else {
-			// The photo does not exist, so we proceed to copy it and insert it
+			// The photo does not exist, so copy and insert it
 			photoDate := photo.Created.Format("2006/01-02/")
 			newPath := filepath.Join(lib.root, photoDate, photo.Filename)
 			err = Copy(photo.Path, newPath)
@@ -173,30 +187,37 @@ func (lib *Library) Import(dir string) error {
 				return err
 			}
 
-			// Insert the photo into the database
+			// Insert
 			result, err := lib.db.Exec("INSERT INTO photos (filename, relpath, filetype, created, hash) VALUES (?, ?, ?, ?, ?)", photo.Filename, photoDate, photo.Filetype, photo.Created, photo.Hash)
 			if err != nil {
 				return err
 			}
 
-			// Get the ID of the photo that was just inserted
+			// Get the ID
 			id, err := result.LastInsertId()
 			if err != nil {
 				return err
 			}
 			photo.ID = int(id)
 
-			// Insert sidecars if they exist
+			// Insert sidecars if they exist and are not already in the database
 			for _, sidecar := range photo.Sidecars {
-				sidecarDate := photo.Created.Format("2006/01-02/")
-				newPath := filepath.Join(lib.root, sidecarDate, sidecar.Filename)
-				err = Copy(sidecar.Path, newPath)
+				exists, err := sidecarExists(lib.db, photo.ID, sidecar.Hash)
 				if err != nil {
 					return err
 				}
-				_, err = lib.db.Exec("INSERT INTO sidecars (photo_id, filename, relpath, filetype, created, modified, hash) VALUES (?, ?, ?, ?, ?, ?, ?)", photo.ID, sidecar.Filename, sidecarDate, sidecar.Filetype, sidecar.Created, sidecar.Modified, sidecar.Hash)
-				if err != nil {
-					return err
+
+				if !exists {
+					sidecarDate := photo.Created.Format("2006/01-02/")
+					newPath := filepath.Join(lib.root, sidecarDate, sidecar.Filename)
+					err = Copy(sidecar.Path, newPath)
+					if err != nil {
+						return err
+					}
+					_, err = lib.db.Exec("INSERT INTO sidecars (photo_id, filename, relpath, filetype, created, modified, hash) VALUES (?, ?, ?, ?, ?, ?, ?)", photo.ID, sidecar.Filename, sidecarDate, sidecar.Filetype, sidecar.Created, sidecar.Modified, sidecar.Hash)
+					if err != nil {
+						return err
+					}
 				}
 			}
 		}
@@ -309,4 +330,94 @@ func (lib *Library) GetPhotoCount() (int, error) {
 	var count int
 	rows.Scan(&count)
 	return count, nil
+}
+
+func (lib *Library) SyncFrom(lib2 *Library) error { // hash needs to be updated on file change
+	// Get all photos from lib2
+	photos, err := lib2.GetPhotos() 
+	if err != nil {
+		return err
+	}
+	bar := bar.Default(int64(len(photos)), "Syncing photos")
+
+	for _, photo := range photos {
+		var existingID int
+		// Check if the photo already exists in the main library
+		err = lib.db.QueryRow("SELECT id FROM photos WHERE hash = ?", photo.Hash).Scan(&existingID)
+		if err != nil && err != sql.ErrNoRows {
+			return err
+		}
+
+		if existingID > 0 {
+			// The photo already exists, update its sidecars
+			photo.ID = existingID
+
+			for _, sidecar := range photo.Sidecars {
+				var sidecarExists bool
+				err = lib.db.QueryRow("SELECT EXISTS(SELECT 1 FROM sidecars WHERE photo_id = ? AND hash = ?)", photo.ID, sidecar.Hash).Scan(&sidecarExists)
+				if err != nil {
+					return err
+				}
+
+				// Copy and overwrite the sidecar on disk
+				sidecarDate := photo.Created.Format("2006/01-02/")
+				newPath := filepath.Join(lib.root, sidecarDate, sidecar.Filename)
+				err = Copy(sidecar.Path, newPath)
+				if err != nil {
+					return err
+				}
+				// Insert or update sidecar in the database
+				if sidecarExists {
+					_, err = lib.db.Exec("UPDATE sidecars SET filename = ?, relpath = ?, filetype = ?, created = ?, modified = ?, hash = ? WHERE photo_id = ? AND hash = ?", 
+						sidecar.Filename, sidecarDate, sidecar.Filetype, sidecar.Created, sidecar.Modified, sidecar.Hash, photo.ID, sidecar.Hash)
+				} else {
+					_, err = lib.db.Exec("INSERT INTO sidecars (photo_id, filename, relpath, filetype, created, modified, hash) VALUES (?, ?, ?, ?, ?, ?, ?)", 
+						photo.ID, sidecar.Filename, sidecarDate, sidecar.Filetype, sidecar.Created, sidecar.Modified, sidecar.Hash)
+				}
+				if err != nil {
+					return err
+				}
+			}
+		} else {
+			// The photo does not exist, so we proceed to copy it and insert it
+			photoDate := photo.Created.Format("2006/01-02/")
+			newPath := filepath.Join(lib.root, photoDate, photo.Filename)
+			err = Copy(photo.Path, newPath)
+			if err != nil {
+				return err
+			}
+
+			// Insert the photo into the main library
+			result, err := lib.db.Exec("INSERT INTO photos (filename, relpath, filetype, created, hash) VALUES (?, ?, ?, ?, ?)", 
+				photo.Filename, photoDate, photo.Filetype, photo.Created, photo.Hash)
+			if err != nil {
+				return err
+			}
+
+			// Get the id of the photo that was just inserted
+			id, err := result.LastInsertId()
+			if err != nil {
+				return err
+			}
+			photo.ID = int(id)
+
+			// Insert sidecars if they exist
+			for _, sidecar := range photo.Sidecars {
+				sidecarDate := photo.Created.Format("2006/01-02/")
+				newPath := filepath.Join(lib.root, sidecarDate, sidecar.Filename)
+				err = Copy(sidecar.Path, newPath)
+				if err != nil {
+					return err
+				}
+				_, err = lib.db.Exec("INSERT INTO sidecars (photo_id, filename, relpath, filetype, created, modified, hash) VALUES (?, ?, ?, ?, ?, ?, ?)", 
+					photo.ID, sidecar.Filename, sidecarDate, sidecar.Filetype, sidecar.Created, sidecar.Modified, sidecar.Hash)
+				if err != nil {
+					return err
+				}
+			}
+		}
+
+		bar.Add(1)
+	}
+	return nil
 }

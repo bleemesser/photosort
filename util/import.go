@@ -1,12 +1,12 @@
 package util
 
 import (
-	"hash/fnv"
+	"crypto/sha256"
+	"encoding/base64"
 	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"time"
 
@@ -64,7 +64,6 @@ func GetPhotos(files []string) []Photo {
 				continue
 			}
 		} else {
-			// get date really long ago
 			date = time.Date(1900, 1, 1, 0, 0, 0, 0, time.UTC)
 		}
 
@@ -75,7 +74,8 @@ func GetPhotos(files []string) []Photo {
 		for _, ext := range sidecarExts {
 			sidecarPath := strings.TrimSuffix(file, filepath.Ext(file)) + ext
 			if _, err := os.Stat(sidecarPath); !os.IsNotExist(err) {
-				sidecarHash, err := HashFile(sidecarPath)
+				// include file name in hash
+				sidecarHash, err := HashFile(sidecarPath, fields["FileName"].(string))
 				if err != nil { // TODO: handle error better
 					bar.Add(1)
 					continue
@@ -112,19 +112,24 @@ func getExif(path string, et *exif.Exiftool) map[string]interface{} {
 	return nil
 }
 
-func HashFile(path string) (string, error) {
+func HashFile(path string, metadata ...string) (string, error) {
+	// sha256 hash the file and any given metadata
 	f, err := os.Open(path)
 	if err != nil {
 		return "", err
 	}
 	defer f.Close()
 
-	h := fnv.New64()
+	h := sha256.New()
+	for _, m := range metadata {
+		io.WriteString(h, m)
+	}
+	
 	if _, err := io.Copy(h, f); err != nil {
 		return "", err
 	}
 
-	return strconv.FormatUint(h.Sum64(), 10), nil
+	return base64.StdEncoding.EncodeToString(h.Sum(nil)), nil
 }
 
 func Copy(src, dst string) error {

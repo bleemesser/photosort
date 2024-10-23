@@ -128,6 +128,8 @@ func validateArgs(a Args) (Args, error) {
 		fmt.Println("Usage: photosort sync <library_dir1> <library_dir2>")
 		fmt.Println("Usage: photosort update <library_dir>")
 		os.Exit(0)
+	case "debug":
+		
 	default:
 		e = "Invalid action specified"
 	}

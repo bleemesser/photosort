@@ -28,6 +28,7 @@ func main() {
 	}
 
 	fmt.Println(args)
+
 	switch args.Action {
 	case "create":
 		// Create a new library, which will also create the directory if it doesn't exist
@@ -80,5 +81,39 @@ func main() {
 			os.Exit(1)
 		}
 		fmt.Println("Library now has " + fmt.Sprint(count) + " photos.")
+	case "sync":
+		// Syncs the first library into the second library
+		// Open existing library
+		lib, err := util.OpenLibrary(args.GetDir(0))
+		if err != nil {
+			fmt.Println(err)
+			os.Exit(1)
+		}
+
+		// Open the second library
+		lib2, err := util.OpenLibrary(args.GetDir(1))
+		if err != nil {
+			fmt.Println(err)
+			os.Exit(1)
+		}
+
+		err = lib.UpdateDB()
+		if err != nil {
+			fmt.Println(err)
+			os.Exit(1)
+		}
+
+		err = lib2.UpdateDB()
+		if err != nil {
+			fmt.Println(err)
+			os.Exit(1)
+		}
+
+		// call the sync function which will sync the two libraries
+		err = lib2.SyncFrom(lib)
+		if err != nil {
+			fmt.Println(err)
+			os.Exit(1)
+		}
 	}
 }
