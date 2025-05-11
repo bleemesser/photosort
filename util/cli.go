@@ -130,7 +130,7 @@ func validateArgs(a Args) (Args, error) {
 		os.Exit(0)
 	case "debug":
 		
-	default:
+	default: // Add a check for empty action as well, though handled by `if a.Action == ""`
 		e = "Invalid action specified"
 	}
 
