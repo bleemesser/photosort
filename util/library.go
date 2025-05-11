@@ -36,13 +36,15 @@ func CreateLibrary(dir string) (*Library, error) {
 	// create a new library
 	lib := &Library{}
 
-	// open the database
+	// open the database (will create the file if it doesn't exist)
 	db, err := sql.Open("sqlite", filepath.Join(dir, "library.db"))
 	if err != nil {
+		db.Close()
 		return nil, err
 	}
 	err = db.Ping()
 	if err != nil {
+		db.Close()
 		return nil, err
 	}
 
@@ -370,8 +372,7 @@ func (lib *Library) SyncFrom(lib2 *Library) error { // hash needs to be updated 
 			photo.ID = existingID
 
 			for _, sidecar := range photo.Sidecars {
-				var sidecarExists bool
-				err = lib.db.QueryRow("SELECT EXISTS(SELECT 1 FROM sidecars WHERE photo_id = ? AND hash = ?)", photo.ID, sidecar.Hash).Scan(&sidecarExists)
+				sidecarExists, err := sidecarExists(lib.db, photo.ID, sidecar.Hash)
 				if err != nil {
 					return err
 				}
