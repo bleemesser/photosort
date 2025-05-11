@@ -62,7 +62,7 @@ func CreateLibrary(dir string) (*Library, error) {
 		return nil, fmt.Errorf("failed to create photos table: %w", err)
 	}
 
-	// Sidecars table
+	// Sidecars table - Corrected Schema
 	_, err = lib.db.Exec(`CREATE TABLE IF NOT EXISTS sidecars (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
 		photo_id INTEGER NOT NULL,
@@ -71,10 +71,10 @@ func CreateLibrary(dir string) (*Library, error) {
 		filetype TEXT,
 		created TIMESTAMP,
 		modified TIMESTAMP,
-		hash TEXT UNIQUE NOT NULL,
+		hash TEXT NOT NULL,
 		FOREIGN KEY (photo_id) REFERENCES photos(id) ON DELETE CASCADE,
 		UNIQUE (photo_id, filename) 
-	)`) // Added UNIQUE constraint for photo_id, filename
+	)`)
 	if err != nil {
 		lib.db.Close()
 		return nil, fmt.Errorf("failed to create sidecars table: %w", err)
@@ -150,10 +150,10 @@ func (lib *Library) Import(dir string, doCopy bool) error {
 
 	for _, photo := range photosToProcess {
 		var existingPhotoID int
-		var existingPhotoHash string // To check if photo content changed even if path is same (not used here, hash is primary key)
+		// var existingPhotoHash string // Not strictly needed here as photo.Hash is the source of truth for comparison
 
 		// Check if photo with this hash already exists
-		err := tx.QueryRow("SELECT id, hash FROM photos WHERE hash = ?", photo.Hash).Scan(&existingPhotoID, &existingPhotoHash)
+		err := tx.QueryRow("SELECT id FROM photos WHERE hash = ?", photo.Hash).Scan(&existingPhotoID)
 		if err != nil && err != sql.ErrNoRows {
 			return fmt.Errorf("querying existing photo by hash %s: %w", photo.Hash, err)
 		}
@@ -179,8 +179,6 @@ func (lib *Library) Import(dir string, doCopy bool) error {
 			photo.ID = int(id)
 		} else { // Photo with this hash already exists
 			photo.ID = existingPhotoID
-			// Potentially update metadata if changed, but hash collision means content is same.
-			// For now, if hash matches, we assume photo is the same.
 		}
 
 		// Process sidecars for the photo (whether it's new or existing)
@@ -215,29 +213,31 @@ func (lib *Library) Import(dir string, doCopy bool) error {
 						continue
 					}
 				}
+				// The INSERT will now allow duplicate hashes (from other photos)
+				// but UNIQUE (photo_id, filename) prevents this specific photo from having two sidecars with same name.
 				_, insertErr := tx.Exec("INSERT INTO sidecars (photo_id, filename, relpath, filetype, created, modified, hash) VALUES (?, ?, ?, ?, ?, ?, ?)",
 					photo.ID, sidecar.Filename, photoDateDir, sidecar.Filetype, sidecar.Created, sidecar.Modified, sidecar.Hash)
 				if insertErr != nil {
-					return fmt.Errorf("inserting new sidecar %s: %w", sidecar.Filename, insertErr)
+					// This is where your original error occurred.
+					// With UNIQUE on hash removed, this specific error type (UNIQUE constraint on hash) should not happen.
+					// Other errors (like UNIQUE on photo_id, filename if logic was flawed) could still occur.
+					return fmt.Errorf("inserting new sidecar %s (photo_id: %d, hash: %s): %w", sidecar.Filename, photo.ID, sidecar.Hash, insertErr)
 				}
 			}
 		}
 		progressBar.Add(1)
 	}
-
+	progressBar.Finish() // Ensure progress bar finishes
 	return tx.Commit()
 }
 
 // UpdateDB checks for removed files and updates/adds new ones
 func (lib *Library) UpdateDB() error {
-	// Phase 1: Cull deleted photos and sidecars from DB
-	// (Using a transaction for this phase)
 	txCull, err := lib.db.Begin()
 	if err != nil {
 		return fmt.Errorf("UpdateDB: failed to begin culling transaction: %w", err)
 	}
 
-	// Cull photos
 	photoRows, err := txCull.Query("SELECT id, relpath, filename FROM photos")
 	if err != nil {
 		txCull.Rollback()
@@ -276,7 +276,6 @@ func (lib *Library) UpdateDB() error {
 	}
 	cullBar.Finish()
 
-	// Cull sidecars (or update their hash if modified)
 	sidecarRows, err := txCull.Query("SELECT id, relpath, filename, hash FROM sidecars")
 	if err != nil {
 		txCull.Rollback()
@@ -305,17 +304,16 @@ func (lib *Library) UpdateDB() error {
 	sidecarBar := bar.Default(int64(len(sidecarsToCheck)), "Checking for removed/modified sidecars")
 	for _, sc := range sidecarsToCheck {
 		fileInfo, statErr := os.Stat(sc.path)
-		if os.IsNotExist(statErr) { // Sidecar file deleted from disk
+		if os.IsNotExist(statErr) {
 			if _, execErr := txCull.Exec("DELETE FROM sidecars WHERE id = ?", sc.id); execErr != nil {
 				txCull.Rollback()
 				return fmt.Errorf("UpdateDB: deleting sidecar ID %d: %w", sc.id, execErr)
 			}
-		} else if statErr == nil { // Sidecar file exists, check if modified
+		} else if statErr == nil {
 			currentFileHash, hashErr := HashFile(sc.path)
 			if hashErr != nil {
 				log.Printf("Warning: UpdateDB: Could not hash sidecar file %s: %v. Skipping update for this sidecar.", sc.path, hashErr)
 			} else if currentFileHash != sc.dbHash {
-				// Hash changed, file content changed. Update hash and modified time.
 				_, execErr := txCull.Exec("UPDATE sidecars SET hash = ?, modified = ? WHERE id = ?", currentFileHash, fileInfo.ModTime(), sc.id)
 				if execErr != nil {
 					txCull.Rollback()
@@ -331,10 +329,6 @@ func (lib *Library) UpdateDB() error {
 		return fmt.Errorf("UpdateDB: failed to commit culling transaction: %w", err)
 	}
 
-	// Phase 2: Import new/updated files from the library's root directory
-	// The Import function handles its own transaction.
-	// 'doCopy' is false because files are already in the library structure (or should be).
-	// This will re-evaluate hashes and add new photos/sidecars, or update existing sidecar details if their content changed.
 	log.Println("UpdateDB: Scanning library root for new or changed files...")
 	if err := lib.Import(lib.root, false); err != nil {
 		return fmt.Errorf("UpdateDB: failed during re-import phase: %w", err)
@@ -343,9 +337,7 @@ func (lib *Library) UpdateDB() error {
 	return nil
 }
 
-// GetPhotos retrieves all photos and their sidecars from the library
 func (lib *Library) GetPhotos() (map[int]Photo, error) {
-	// No transaction needed typically for a read-only GetPhotos
 	rows, err := lib.db.Query(`
 		SELECT 
 			p.id AS photo_id, p.filename AS photo_filename, p.relpath AS photo_relpath, 
@@ -402,7 +394,6 @@ func (lib *Library) GetPhotos() (map[int]Photo, error) {
 				Modified: sModified.Time,
 				Hash:     sHash.String,
 			}
-			// Avoid appending duplicates if query results in multiple rows for same sidecar (should not happen with current schema)
 			isDuplicateSidecar := false
 			for _, existingSc := range photo.Sidecars {
 				if existingSc.ID == sidecar.ID {
@@ -422,7 +413,6 @@ func (lib *Library) GetPhotos() (map[int]Photo, error) {
 	return photosMap, nil
 }
 
-// GetPhotoCount returns the total number of photos in the library
 func (lib *Library) GetPhotoCount() (int, error) {
 	var count int
 	err := lib.db.QueryRow("SELECT COUNT(*) FROM photos").Scan(&count)
@@ -432,7 +422,6 @@ func (lib *Library) GetPhotoCount() (int, error) {
 	return count, nil
 }
 
-// SyncFrom syncs photos and sidecars from a source library (lib2) into the current library (lib)
 func (lib *Library) SyncFrom(sourceLib *Library) error {
 	tx, err := lib.db.Begin()
 	if err != nil {
@@ -449,10 +438,9 @@ func (lib *Library) SyncFrom(sourceLib *Library) error {
 
 	for _, sourcePhoto := range photosFromSource {
 		var targetPhotoID int
-		// Check if photo with this hash exists in the target library (current lib)
 		err := tx.QueryRow("SELECT id FROM photos WHERE hash = ?", sourcePhoto.Hash).Scan(&targetPhotoID)
 
-		if err == sql.ErrNoRows { // Photo does not exist in target, needs to be inserted
+		if err == sql.ErrNoRows {
 			targetPhotoDateDir := sourcePhoto.Created.Format("2006/01-02")
 			targetPhotoPath := filepath.Join(lib.root, targetPhotoDateDir, sourcePhoto.Filename)
 
@@ -469,14 +457,12 @@ func (lib *Library) SyncFrom(sourceLib *Library) error {
 			}
 			id, _ := result.LastInsertId()
 			targetPhotoID = int(id)
-		} else if err != nil { // Other database error
+		} else if err != nil {
 			return fmt.Errorf("SyncFrom: querying target for photo hash %s: %w", sourcePhoto.Hash, err)
 		}
-		// If photo exists (targetPhotoID is now set), proceed to sync sidecars.
 
-		// Sync sidecars for this photo
 		for _, sourceSidecar := range sourcePhoto.Sidecars {
-			targetSidecarDateDir := sourcePhoto.Created.Format("2006/01-02") // Sidecars go with photo
+			targetSidecarDateDir := sourcePhoto.Created.Format("2006/01-02")
 			targetSidecarPath := filepath.Join(lib.root, targetSidecarDateDir, sourceSidecar.Filename)
 
 			existsInTarget, currentTargetDbHash, targetSidecarDbID, checkErr := sidecarExists(tx, targetPhotoID, sourceSidecar.Filename)
@@ -484,8 +470,8 @@ func (lib *Library) SyncFrom(sourceLib *Library) error {
 				return fmt.Errorf("SyncFrom: checking sidecar %s in target for photo ID %d: %w", sourceSidecar.Filename, targetPhotoID, checkErr)
 			}
 
-			if existsInTarget { // Sidecar with this name exists in target for this photo
-				if currentTargetDbHash != sourceSidecar.Hash { // Hash differs, needs update
+			if existsInTarget {
+				if currentTargetDbHash != sourceSidecar.Hash {
 					if err := Copy(sourceSidecar.Path, targetSidecarPath); err != nil {
 						log.Printf("Warning: SyncFrom: Failed to copy updated sidecar %s: %v. Skipping sidecar update.", sourceSidecar.Path, err)
 						continue
@@ -496,7 +482,7 @@ func (lib *Library) SyncFrom(sourceLib *Library) error {
 						return fmt.Errorf("SyncFrom: updating sidecar %s in target DB: %w", sourceSidecar.Filename, updateErr)
 					}
 				}
-			} else { // Sidecar does not exist in target, insert it
+			} else {
 				if err := Copy(sourceSidecar.Path, targetSidecarPath); err != nil {
 					log.Printf("Warning: SyncFrom: Failed to copy new sidecar %s: %v. Skipping sidecar insert.", sourceSidecar.Path, err)
 					continue
