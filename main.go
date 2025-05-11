@@ -12,6 +12,14 @@ func main() {
 	// Configure logger for more structured output
 	log.SetFlags(log.Ldate | log.Ltime | log.Lshortfile)
 
+	// set log output to a file
+	logFile, err := os.OpenFile("photosort.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
+	if err != nil {
+		log.Fatalf("Failed to open log file: %v", err)
+	}
+	defer logFile.Close()
+	log.SetOutput(logFile)
+
 	args, err := util.NewArgs(os.Args)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Argument error: %v\nRun 'photosort help' for usage.\n", err)

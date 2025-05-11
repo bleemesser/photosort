@@ -1,3 +1,4 @@
+// photosort/util/import.go
 package util
 
 import (
@@ -15,6 +16,27 @@ import (
 	bar "github.com/schollz/progressbar/v3"
 )
 
+// SourceSidecarInfo holds metadata about a sidecar file from its original location.
+type SourceSidecarInfo struct {
+	OriginalPath string
+	Filename     string
+	Filetype     string
+	Created      time.Time // Can be photo's creation date or sidecar's own time
+	Modified     time.Time
+	Hash         string
+}
+
+// SourcePhotoInfo holds metadata about a photo file from its original location,
+// including its strictly associated sidecars.
+type SourcePhotoInfo struct {
+	OriginalPath string
+	Filename     string
+	Filetype     string
+	Created      time.Time
+	Hash         string
+	Sidecars     []SourceSidecarInfo // Sidecars strictly matching this photo's base name
+}
+
 func WalkDir(dir string) ([]string, error) {
 	var files []string
 	err := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
@@ -29,140 +51,132 @@ func WalkDir(dir string) ([]string, error) {
 	return files, err
 }
 
-func GetPhotos(files []string) []Photo {
-	bar := bar.Default(int64(len(files)), "Acquiring file metadata")
-	var photos []Photo
+func GetPhotos(sourceFilePaths []string) []SourcePhotoInfo {
+	progressBar := bar.Default(int64(len(sourceFilePaths)), "Scanning source files metadata")
+	var allPhotoInfo []SourcePhotoInfo
 	et, err := exif.NewExiftool()
 	if err != nil {
-		log.Printf("Error creating Exiftool helper: %v. EXIF data will not be read.", err)
-		// Allow continuing without exiftool, but some features might be limited.
-		// Alternatively, return nil or an error: return nil
+		log.Printf("Error creating Exiftool helper: %v. EXIF data reading might be affected.", err)
 	}
 	if et != nil {
 		defer et.Close()
 	}
 
-	for _, file := range files {
+	for _, photoOriginalPath := range sourceFilePaths {
 		var fields map[string]interface{}
 		if et != nil {
-			extractedMeta := et.ExtractMetadata(file)
+			extractedMeta := et.ExtractMetadata(photoOriginalPath)
 			if len(extractedMeta) > 0 && extractedMeta[0].Err == nil {
 				fields = extractedMeta[0].Fields
 			} else if len(extractedMeta) > 0 && extractedMeta[0].Err != nil {
-				log.Printf("Warning: Could not get EXIF for %s: %v", file, extractedMeta[0].Err)
+				log.Printf("Warning: Could not get EXIF for %s: %v", photoOriginalPath, extractedMeta[0].Err)
 			}
 		}
 
-		if fields == nil { // Fallback or if exiftool failed for this file
-			fields = make(map[string]interface{}) // Ensure fields is not nil
-			fileInfo, statErr := os.Stat(file)
-			if statErr == nil {
-				fields["FileName"] = fileInfo.Name()
-				// Attempt to get MIME type through other means if needed, or skip if critical
-			} else {
-				log.Printf("Warning: Could not stat file %s: %v. Skipping.", file, statErr)
-				bar.Add(1)
-				continue
-			}
-		}
-
-		if fields["MIMEType"] == nil {
-			// Potentially try http.DetectContentType here if MIMEType is critical
-			// For now, if EXIF didn't yield it, we might skip or make a guess based on extension
-			log.Printf("Warning: MIMEType missing for %s. Skipping.", file)
-			bar.Add(1)
+		fileInfo, statErr := os.Stat(photoOriginalPath)
+		if statErr != nil {
+			log.Printf("Warning: Could not stat file %s: %v. Skipping.", photoOriginalPath, statErr)
+			progressBar.Add(1)
 			continue
 		}
-		if !strings.Contains(fields["MIMEType"].(string), "image") {
-			bar.Add(1)
+
+		if fields == nil {
+			fields = make(map[string]interface{})
+		}
+		// Ensure FileName is present, prefer EXIF, fallback to OS filename
+		if _, ok := fields["FileName"]; !ok {
+			fields["FileName"] = fileInfo.Name()
+		}
+
+
+		// Basic MIME type check, can be expanded
+		isImage := false
+		if mimeType, ok := fields["MIMEType"].(string); ok {
+			if strings.Contains(mimeType, "image") {
+				isImage = true
+			}
+		} else { // Fallback if MIMEType is not in EXIF - very basic check
+			ext := strings.ToLower(filepath.Ext(photoOriginalPath))
+			imgExts := []string{".jpg", ".jpeg", ".png", ".gif", ".tiff", ".tif", ".nef", ".cr2", ".arw", ".dng", ".heic", ".heif", ".webp"}
+			for _, imgExt := range imgExts {
+				if ext == imgExt {
+					isImage = true
+					break
+				}
+			}
+			if !isImage {
+                 // log.Printf("Debug: File %s with ext %s not considered image by ext check", photoOriginalPath, ext)
+            }
+		}
+
+		if !isImage {
+			progressBar.Add(1)
 			continue
 		}
 
 		var date time.Time
 		parsedDate := false
-
-		if fields["CreateDate"] != nil {
-			dateString, ok := fields["CreateDate"].(string)
-			if ok {
-				date, err = time.Parse("2006:01:02 15:04:05", dateString)
-				if err == nil {
-					parsedDate = true
-				}
-			}
+		if createdDateStr, ok := fields["CreateDate"].(string); ok {
+			date, err = time.Parse("2006:01:02 15:04:05", createdDateStr)
+			if err == nil { parsedDate = true }
 		}
-		if !parsedDate && fields["DateTimeOriginal"] != nil {
-			dateString, ok := fields["DateTimeOriginal"].(string)
-			if ok {
-				date, err = time.Parse("2006:01:02 15:04:05", dateString)
-				if err == nil {
-					parsedDate = true
-				}
-			}
-		}
-
 		if !parsedDate {
-			fileInfo, statErr := os.Stat(file)
-			if statErr == nil {
-				date = fileInfo.ModTime() // Fallback to file modification time
-				log.Printf("Warning: No EXIF date for %s, using file modification time: %s", file, date.Format(time.RFC3339))
-			} else {
-				date = time.Date(1900, 1, 1, 0, 0, 0, 0, time.UTC) // Absolute fallback
-				log.Printf("Warning: No EXIF date and could not stat file %s, using default date 1900-01-01", file)
+			if dateTimeOrigStr, ok := fields["DateTimeOriginal"].(string); ok {
+				date, err = time.Parse("2006:01:02 15:04:05", dateTimeOrigStr)
+				if err == nil { parsedDate = true }
 			}
 		}
-
-		sidecarExts := []string{".xmp", ".photo-edit"}
-		var sidecars []Sidecar
-		for _, ext := range sidecarExts {
-			sidecarPath := strings.TrimSuffix(file, filepath.Ext(file)) + ext
-			sidecarInfo, err := os.Stat(sidecarPath)
-			if err == nil { // Sidecar file exists
-				sidecarHash, err := HashFile(sidecarPath) // Hash sidecar based on its own content only
-				if err != nil {
-					log.Printf("Warning: Failed to hash sidecar %s for photo %s: %v. Skipping sidecar.", sidecarPath, file, err)
-					// bar.Add(1) // Don't add to bar here, main photo progress is separate
-					continue
-				}
-				sidecarModifiedTime := sidecarInfo.ModTime()
-				// For Created, ideally, it would be the sidecar's creation, but that's hard.
-				// Using the photo's date or sidecar's mod time are options.
-				// Let's use the photo's date for consistency with original logic unless specific sidecar created date is found.
-				sc := Sidecar{
-					Filename: filepath.Base(sidecarPath),
-					Path:     sidecarPath,
-					Filetype: strings.ToUpper(strings.TrimPrefix(filepath.Ext(sidecarPath), ".")),
-					Created:  date, // Or sidecarInfo.ModTime() if preferred for 'Created' too
-					Modified: sidecarModifiedTime,
-					Hash:     sidecarHash,
-				}
-				sidecars = append(sidecars, sc)
-			}
+		if !parsedDate {
+			date = fileInfo.ModTime() // Fallback to file modification time
 		}
 
-		photoHash, err := HashFile(file)
+		photoFilename := filepath.Base(photoOriginalPath)
+		photoFiletype := strings.ToUpper(strings.TrimPrefix(filepath.Ext(photoFilename), "."))
+		photoHash, err := HashFile(photoOriginalPath)
 		if err != nil {
-			log.Printf("Error: Failed to hash photo %s: %v. Skipping photo.", file, err)
-			bar.Add(1)
+			log.Printf("Error: Failed to hash photo %s: %v. Skipping photo.", photoOriginalPath, err)
+			progressBar.Add(1)
 			continue
 		}
 
-		p := Photo{
-			Filename: filepath.Base(file),
-			Path:     file,
-			Filetype: strings.ToUpper(strings.TrimPrefix(filepath.Ext(file), ".")),
-			Created:  date,
-			Sidecars: sidecars,
-			Hash:     photoHash,
-		}
+		var foundSidecars []SourceSidecarInfo
+		sidecarExtensions := []string{".xmp", ".photo-edit"} // Define your sidecar extensions
+		photoBaseName := strings.TrimSuffix(photoOriginalPath, filepath.Ext(photoOriginalPath))
 
-		photos = append(photos, p)
-		bar.Add(1)
+		for _, scExt := range sidecarExtensions {
+			sidecarOriginalPath := photoBaseName + scExt
+			scFileInfo, scStatErr := os.Stat(sidecarOriginalPath)
+			if scStatErr == nil { // Sidecar file exists
+				scHash, scHashErr := HashFile(sidecarOriginalPath)
+				if scHashErr != nil {
+					log.Printf("Warning: Failed to hash sidecar %s: %v. Skipping sidecar.", sidecarOriginalPath, scHashErr)
+					continue
+				}
+				foundSidecars = append(foundSidecars, SourceSidecarInfo{
+					OriginalPath: sidecarOriginalPath,
+					Filename:     filepath.Base(sidecarOriginalPath),
+					Filetype:     strings.ToUpper(strings.TrimPrefix(scExt, ".")),
+					Created:      date, // Often sidecars share photo's "original" date context
+					Modified:     scFileInfo.ModTime(),
+					Hash:         scHash,
+				})
+			}
+		}
+		
+		allPhotoInfo = append(allPhotoInfo, SourcePhotoInfo{
+			OriginalPath: photoOriginalPath,
+			Filename:     photoFilename,
+			Filetype:     photoFiletype,
+			Created:      date,
+			Hash:         photoHash,
+			Sidecars:     foundSidecars,
+		})
+		progressBar.Add(1)
 	}
-	return photos
+	progressBar.Finish()
+	return allPhotoInfo
 }
 
-// getExif is now effectively inlined into GetPhotos or handled by its error checks.
-// If exiftool is not found or fails, GetPhotos attempts to proceed with minimal info or skips.
 
 func HashFile(path string) (string, error) {
 	f, err := os.Open(path)
@@ -206,42 +220,32 @@ func Copy(src, dst string) error {
 
 	_, err = io.Copy(destination, source)
 	if err != nil {
-		// If copy fails, attempt to remove the potentially partially written destination file.
 		os.Remove(dst)
 		return fmt.Errorf("failed to copy content from %s to %s: %w", src, dst, err)
 	}
 	return nil
 }
 
+// Photo and Sidecar structs (if used directly by library.go for DB interaction, keep them)
+// Or, library.go can map from SourcePhotoInfo to its internal DB representation.
+// For now, these are not directly used by GetPhotos anymore.
 type Photo struct {
 	ID       int
 	Filename string
-	Path     string
+	Path     string // Path within the library
 	Filetype string
 	Created  time.Time
-	Sidecars []Sidecar
+	Sidecars []Sidecar // Sidecars associated in the library
 	Hash     string
-}
-
-func (p Photo) String() string {
-	out := "Photo: " + p.Filename + " (" + p.Created.Format("2006-01-02") + ")"
-	for _, s := range p.Sidecars {
-		out += "\n\t" + s.String()
-	}
-	return out
 }
 
 type Sidecar struct {
 	ID       int
 	PhotoID  int
 	Filename string
-	Path     string
+	Path     string // Path within the library
 	Filetype string
 	Created  time.Time
 	Modified time.Time
 	Hash     string
-}
-
-func (s Sidecar) String() string {
-	return "Sidecar: " + s.Filename + " (Modified: " + s.Modified.Format("2006-01-02 15:04:05") + ")"
 }
