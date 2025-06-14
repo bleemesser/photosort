@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	_ "github.com/glebarez/go-sqlite" // SQLite driver
+	_ "github.com/mattn/go-sqlite3" // Use the cgo-based driver
 	bar "github.com/schollz/progressbar/v3"
 )
 
@@ -71,7 +71,7 @@ func CreateLibrary(dir string) (*Library, error) {
 		return nil, fmt.Errorf("library database already exists in %s", dir)
 	}
 	lib := &Library{}
-	db, err := sql.Open("sqlite", dbPath+"?_journal_mode=WAL&_busy_timeout=5000")
+	db, err := sql.Open("sqlite3", dbPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
@@ -102,7 +102,7 @@ func OpenLibrary(dir string) (*Library, error) {
 		return nil, fmt.Errorf("library database does not exist in %s", dir)
 	}
 	lib := &Library{}
-	db, err := sql.Open("sqlite", dbPath+"?_journal_mode=WAL&_busy_timeout=5000")
+	db, err := sql.Open("sqlite3", dbPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
@@ -309,14 +309,14 @@ func (lib *Library) Import(sourceDir string, doCopy bool) error {
 // GetPhotos (kept for now, but might need to change if DB representation is preferred)
 func (lib *Library) GetPhotos() (map[int]Photo, error) {
 	rows, err := lib.db.Query(`
-		SELECT 
-			p.id AS photo_id, p.filename AS photo_filename, p.relpath AS photo_relpath, 
+		SELECT
+			p.id AS photo_id, p.filename AS photo_filename, p.relpath AS photo_relpath,
 			p.filetype AS photo_filetype, p.created AS photo_created, p.hash AS photo_hash,
-			s.id AS sidecar_id, s.filename AS sidecar_filename, s.relpath AS sidecar_relpath, 
-			s.filetype AS sidecar_filetype, s.created AS sidecar_created, 
+			s.id AS sidecar_id, s.filename AS sidecar_filename, s.relpath AS sidecar_relpath,
+			s.filetype AS sidecar_filetype, s.created AS sidecar_created,
 			s.modified AS sidecar_modified, s.hash AS sidecar_hash
-		FROM photos p 
-		LEFT JOIN sidecars s ON p.id = s.photo_id 
+		FROM photos p
+		LEFT JOIN sidecars s ON p.id = s.photo_id
 		ORDER BY p.created, p.filename, s.filename`)
 	if err != nil {
 		return nil, fmt.Errorf("querying photos and sidecars: %w", err)

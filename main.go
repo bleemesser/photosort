@@ -148,10 +148,10 @@ func handleSync(args util.Args) {
 
 	// It's good practice to run UpdateDB on the target again to ensure full consistency
 	// especially if SyncFrom might have edge cases or if files were manipulated externally during sync.
-	fmt.Println("Updating target library after sync to ensure consistency...")
-	if err := libTarget.UpdateDB(); err != nil {
-		log.Fatalf("Failed to update target library %s post-sync: %v", targetLibPath, err)
-	}
+	// fmt.Println("Updating target library after sync to ensure consistency...")
+	// if err := libTarget.UpdateDB(); err != nil {
+	// 	log.Fatalf("Failed to update target library %s post-sync: %v", targetLibPath, err)
+	// }
 
 	count, countErr := libTarget.GetPhotoCount()
 	if countErr != nil {
