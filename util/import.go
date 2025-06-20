@@ -54,7 +54,11 @@ func WalkDir(dir string) ([]string, error) {
 func GetPhotos(sourceFilePaths []string) []SourcePhotoInfo {
 	progressBar := bar.Default(int64(len(sourceFilePaths)), "Scanning source files metadata")
 	var allPhotoInfo []SourcePhotoInfo
-	et, err := exif.NewExiftool()
+
+	buf := make([]byte, 4096*1024)
+	et, err := exif.NewExiftool(
+		exif.Buffer(buf, 2048*1024),
+	)
 	if err != nil {
 		log.Printf("Error creating Exiftool helper: %v. EXIF data reading might be affected.", err)
 	}
