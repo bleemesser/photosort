@@ -516,8 +516,8 @@ impl Library {
                 },
             );
 
-            let sidecar_filename: String = row.get(6)?;
-            let sidecar = if !sidecar_filename.is_empty() {
+            let sidecar_filename: Option<String> = row.get(6)?;
+            let sidecar = if let Some(filename) = sidecar_filename {
                 let modified_at_str: String = row.get(9)?;
                 let modified_at = get_db_date_object(&modified_at_str).unwrap_or_else(|e| {
                     log::error!(
@@ -531,11 +531,8 @@ impl Library {
                     })
                 });
                 Some(SourceSidecarInfo {
-                    original_path: self
-                        .root
-                        .join(row.get::<_, String>(7)?)
-                        .join(&sidecar_filename),
-                    filename: sidecar_filename,
+                    original_path: self.root.join(row.get::<_, String>(7)?).join(&filename),
+                    filename,
                     filetype: row.get(8)?,
                     modified_at,
                     hash: row.get(10)?,

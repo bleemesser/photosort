@@ -1,7 +1,8 @@
 use std::{
     fs, io,
     path::{Path, PathBuf},
-    sync::OnceLock, time::SystemTime,
+    sync::OnceLock,
+    time::SystemTime,
 };
 
 use base64::{Engine, engine::general_purpose};
@@ -20,13 +21,10 @@ static IMG_EXTS: OnceLock<Vec<&'static str>> = OnceLock::new();
 // Supported filecar extensions
 static SIDE_EXTS: OnceLock<Vec<&'static str>> = OnceLock::new();
 
-pub const EXIF_DATE_FORMAT: &[FormatItem] = format_description!(
-    "[year]:[month]:[day] [hour]:[minute]:[second]"
-);
+pub const EXIF_DATE_FORMAT: &[FormatItem] =
+    format_description!("[year]:[month]:[day] [hour]:[minute]:[second]");
 
-pub const EXIF_OFFSET_FORMAT: &[FormatItem] = format_description!(
-    "[offset_hour]:[offset_minute]"
-);
+pub const EXIF_OFFSET_FORMAT: &[FormatItem] = format_description!("[offset_hour]:[offset_minute]");
 
 /// Calculate the SHA256 hash of a file at the given path and returns it as base64.
 pub fn hash_file(path: &Path) -> Result<String, io::Error> {
@@ -39,13 +37,16 @@ pub fn hash_file(path: &Path) -> Result<String, io::Error> {
     Ok(hash_base64)
 }
 
-fn get_exif_date_object(date_str: &str, offset_str: Option<&str>) -> Result<OffsetDateTime, PhotosortError> {
+fn get_exif_date_object(
+    date_str: &str,
+    offset_str: Option<&str>,
+) -> Result<OffsetDateTime, PhotosortError> {
     let date_time = PrimitiveDateTime::parse(date_str, EXIF_DATE_FORMAT)
         .map_err(|e| PhotosortError::InvalidDateFormat(e.to_string()))?;
     let offset = match offset_str {
         Some(o) => UtcOffset::parse(o, EXIF_OFFSET_FORMAT)
-        .map_err(|e| PhotosortError::InvalidDateFormat(e.to_string()))?,
-        None => get_local_tz()
+            .map_err(|e| PhotosortError::InvalidDateFormat(e.to_string()))?,
+        None => get_local_tz(),
     };
     Ok(date_time.assume_offset(offset))
 }
@@ -97,32 +98,37 @@ pub fn process_photo_file(
     );
     log::debug!("Full exif info: {:?}", exif);
 
-    let created_at: OffsetDateTime = get_exif_date_object(&exif.create_date, exif.offset_time.as_deref()).unwrap_or_else(|e1| {
-        log::warn!(
-            "Failed to parse create_date for {}: {}. Falling back to date_time_original.",
-            path.display(),
-            e1
-        );
-        get_exif_date_object(&exif.date_time_original, exif.offset_time_original.as_deref()).unwrap_or_else(|e2| {
+    let created_at: OffsetDateTime =
+        get_exif_date_object(&exif.create_date, exif.offset_time.as_deref()).unwrap_or_else(|e1| {
             log::warn!(
-                "Failed to parse date_time_original for {}: {}. Using file creation time.",
+                "Failed to parse create_date for {}: {}. Falling back to date_time_original.",
                 path.display(),
-                e2
+                e1
             );
-            file_info
-                .created()
-                .ok()
-                .map(OffsetDateTime::from)
-                .unwrap_or_else(|| {
-                    log::warn!(
-                        "Failed to get file creation time for {}. Using current time.",
-                        path.display(),
-                    );
-                    get_current_time()
-                })
-                .to_offset(get_local_tz())
-        })
-    });
+            get_exif_date_object(
+                &exif.date_time_original,
+                exif.offset_time_original.as_deref(),
+            )
+            .unwrap_or_else(|e2| {
+                log::warn!(
+                    "Failed to parse date_time_original for {}: {}. Using file creation time.",
+                    path.display(),
+                    e2
+                );
+                file_info
+                    .created()
+                    .ok()
+                    .map(OffsetDateTime::from)
+                    .unwrap_or_else(|| {
+                        log::warn!(
+                            "Failed to get file creation time for {}. Using current time.",
+                            path.display(),
+                        );
+                        get_current_time()
+                    })
+                    .to_offset(get_local_tz())
+            })
+        });
 
     log::debug!(
         "Photo [{}] determined to be created at {}",
