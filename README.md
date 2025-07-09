@@ -62,3 +62,5 @@ After installation, you can invoke the program directly.
 
 ## Todo
 - [ ] Add a startup check and a more user-friendly error message if `exiftool` is not found in the system's `PATH`.
+- [ ] Refactor library.rs and database.rs to properly separate out the db operations from the library operations.
+- [ ] Would be nice to track the size of photos in the library and display the total sum of the sizes in the info command.
