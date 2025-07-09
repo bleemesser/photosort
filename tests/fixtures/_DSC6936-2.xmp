@@ -1,0 +1,87 @@
+<x:xmpmeta xmlns:x="adobe:ns:meta/" x:xmptk="XMP Core 6.0.0">
+   <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+      <rdf:Description rdf:about=""
+            xmlns:aux="http://ns.adobe.com/exif/1.0/aux/"
+            xmlns:exif="http://ns.adobe.com/exif/1.0/"
+            xmlns:xmp="http://ns.adobe.com/xap/1.0/"
+            xmlns:tiff="http://ns.adobe.com/tiff/1.0/"
+            xmlns:exifEX="http://cipa.jp/exif/1.0/"
+            xmlns:xmpDM="http://ns.adobe.com/xmp/1.0/DynamicMedia/"
+            xmlns:photoshop="http://ns.adobe.com/photoshop/1.0/"
+            xmlns:dc="http://purl.org/dc/elements/1.1/">
+         <aux:SerialNumber>3030990</aux:SerialNumber>
+         <aux:LensInfo>35/1 35/1 9/5 9/5</aux:LensInfo>
+         <aux:Lens>AF-S DX Nikkor 35mm f/1.8G</aux:Lens>
+         <aux:LensID>-6964741764543110906</aux:LensID>
+         <aux:FlashCompensation>0/1</aux:FlashCompensation>
+         <aux:ImageNumber>10971</aux:ImageNumber>
+         <exif:Sharpness>0</exif:Sharpness>
+         <exif:Saturation>0</exif:Saturation>
+         <exif:WhiteBalance>0</exif:WhiteBalance>
+         <exif:ExposureMode>0</exif:ExposureMode>
+         <exif:PixelYDimension>3712</exif:PixelYDimension>
+         <exif:SubjectDistRange>0</exif:SubjectDistRange>
+         <exif:MaxApertureValue>8/5</exif:MaxApertureValue>
+         <exif:ISOSpeedRatings>
+            <rdf:Seq>
+               <rdf:li>320</rdf:li>
+            </rdf:Seq>
+         </exif:ISOSpeedRatings>
+         <exif:UserComment>
+            <rdf:Alt>
+               <rdf:li xml:lang="x-default"/>
+            </rdf:Alt>
+         </exif:UserComment>
+         <exif:SubsecTimeOriginal>41</exif:SubsecTimeOriginal>
+         <exif:ExposureTime>1/250</exif:ExposureTime>
+         <exif:FocalLength>35/1</exif:FocalLength>
+         <exif:CustomRendered>1</exif:CustomRendered>
+         <exif:FileSource>3</exif:FileSource>
+         <exif:LightSource>0</exif:LightSource>
+         <exif:SubsecTimeDigitized>41</exif:SubsecTimeDigitized>
+         <exif:SceneCaptureType>0</exif:SceneCaptureType>
+         <exif:GainControl>0</exif:GainControl>
+         <exif:ExposureProgram>2</exif:ExposureProgram>
+         <exif:FNumber>8/1</exif:FNumber>
+         <exif:Contrast>0</exif:Contrast>
+         <exif:SensingMethod>2</exif:SensingMethod>
+         <exif:MeteringMode>5</exif:MeteringMode>
+         <exif:SceneType>1</exif:SceneType>
+         <exif:Flash rdf:parseType="Resource">
+            <exif:Function>False</exif:Function>
+            <exif:Fired>False</exif:Fired>
+            <exif:Return>0</exif:Return>
+            <exif:Mode>2</exif:Mode>
+            <exif:RedEyeMode>False</exif:RedEyeMode>
+         </exif:Flash>
+         <exif:ExposureBiasValue>0</exif:ExposureBiasValue>
+         <exif:PixelXDimension>5568</exif:PixelXDimension>
+         <exif:FocalLenIn35mmFilm>52</exif:FocalLenIn35mmFilm>
+         <exif:SubsecTime>41</exif:SubsecTime>
+         <xmp:ModifyDate>2024-05-21T10:44:48.41</xmp:ModifyDate>
+         <xmp:Rating>4</xmp:Rating>
+         <xmp:CreateDate>2024-05-21T10:44:48.41</xmp:CreateDate>
+         <xmp:CreatorTool>Ver.1.10 </xmp:CreatorTool>
+         <xmp:MetadataDate>2025-06-23T02:59:32-07:00</xmp:MetadataDate>
+         <tiff:Orientation>8</tiff:Orientation>
+         <tiff:Compression>34713</tiff:Compression>
+         <tiff:XResolution>720000/10000</tiff:XResolution>
+         <tiff:PhotometricInterpretation>32803</tiff:PhotometricInterpretation>
+         <tiff:ResolutionUnit>2</tiff:ResolutionUnit>
+         <tiff:Make>NIKON CORPORATION</tiff:Make>
+         <tiff:YResolution>720000/10000</tiff:YResolution>
+         <tiff:Model>NIKON D7500</tiff:Model>
+         <exifEX:PhotographicSensitivity>320</exifEX:PhotographicSensitivity>
+         <exifEX:RecommendedExposureIndex>320</exifEX:RecommendedExposureIndex>
+         <exifEX:SensitivityType>2</exifEX:SensitivityType>
+         <xmpDM:good>True</xmpDM:good>
+         <xmpDM:pick>1</xmpDM:pick>
+         <photoshop:DateCreated>2024-05-21T10:44:48.41</photoshop:DateCreated>
+         <dc:creator>
+            <rdf:Seq>
+               <rdf:li>BLEEMESSER</rdf:li>
+            </rdf:Seq>
+         </dc:creator>
+      </rdf:Description>
+   </rdf:RDF>
+</x:xmpmeta>

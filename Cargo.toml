@@ -10,6 +10,7 @@ clap = { version = "4.5.40", features = ["derive"] }
 crossbeam-channel = "0.5.15"
 env_logger = "0.11.8"
 exiftool = "0.2.5"
+fuzzy_match_flex = "0.1.2"
 indicatif = { version = "0.18.0", features = ["rayon"] }
 log = "0.4.27"
 num_cpus = "1.17.0"

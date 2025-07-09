@@ -414,6 +414,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d9c4f5dac5e15c24eb999c26181a6ca40b39fe946cbe4c263c7209467bc83af2"
 
 [[package]]
+name = "fuzzy_match_flex"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bd915a28a5b500053fe165df297d486562b29e7721bd5fa06f2eb7a2aee0d4a6"
+dependencies = [
+ "regex",
+]
+
+[[package]]
 name = "generic-array"
 version = "0.14.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -687,6 +696,7 @@ dependencies = [
  "crossbeam-channel",
  "env_logger",
  "exiftool",
+ "fuzzy_match_flex",
  "indicatif",
  "log",
  "num_cpus",
