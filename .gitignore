@@ -1,3 +1,4 @@
 go.sum
 main
 photosort*
+.DS_Store
