@@ -52,6 +52,7 @@ pub enum Commands {
         #[arg(required = true)]
         target_dir: PathBuf,
     },
+    /// Display information about a library
     Info {
         /// Directory of the library to display info for
         #[arg(required = true)]

@@ -62,8 +62,10 @@ fn main() -> Result<()> {
         }
         Commands::Info { library_dir } => {
             let mut lib = Library::open(&library_dir)?;
-            let count = lib.get_photo_count()?;
-            println!("Library at {} has {} photos.", library_dir.display(), count);
+            let photo_count = lib.get_photo_count()?;
+            let sidecar_count = lib.get_sidecar_count()?;
+            println!("Library {} has {} photos and {} sidecars.", 
+                     library_dir.display(), photo_count, sidecar_count);
         }
     }
 

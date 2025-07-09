@@ -1,19 +1,64 @@
 # Photosort
-A CLI tool to sort and sync libraries of photos and their accompanying sidecar files.
+
+A command-line tool to sort, manage, and synchronize libraries of photos and their accompanying sidecar files.
+
+Photosort processes photo metadata using concurrent exiftool processes, helping to speed up imports. It also performs file copies in parallel.
+
 ## Installation
-- Clone the repository to a directory of your choice.
-- To build the program, you will need to have Go installed on your system. You can download it [here](https://golang.org/dl/).
-- Once you have Go installed, you can build the program by running the following command from within the project directory:
-```go mod tidy && go build -o photosort```
-- Photosort depends on exiftool to read metadata from photos. It must be installed and in your path. It is available in homebrew and apt, and can be downloaded from the [official website](https://exiftool.org/).
+
+### Prerequisites
+
+1.  **Rust Toolchain**: If you don't have Rust installed, you can get it from [rustup.rs](https://rustup.rs/). This will install `rustc`, `cargo`, and `rustup`.
+
+2.  **ExifTool**: Photosort relies on `exiftool` to read metadata from photo files. You must install it and ensure that it's available in your system's `PATH`. It can be installed via package managers like Homebrew or `apt`, or downloaded from the [official website](https://exiftool.org/).
+
+### Steps
+
+1.  **Clone the Repository**:
+    ```bash
+    git clone https://github.com/bleemesser/photosort.git
+    cd photosort
+    ``` 
+2.  **Install the Binary**:
+    Use `cargo install` to compile and install the `photosort` binary into Cargo's  binary directory (`~/.cargo/bin/`).
+    ```bash
+    cargo install --path .
+    ```
+    Once this is complete, you can run the program from anywhere by simply typing   `photosort`.   
 
 ## Usage
-Photosort is a command line tool. It is run by executing the binary file with the appropriate arguments. The following is a list of all available arguments:
-- create: `./photosort create <dir>` - Create a new photosort library in the specified directory. The directory will be created if it does not exist.
-- import: `./photosort import <photo_dir> <library_dir>` - Import photos from the specified directory into the library. The photos and sidecars will be copied into the library directory and organized by date.
-- update: `./photosort update <library_dir>` - Update the library's database with any photo removals or additions, and any sidecar changes.
-- sync: `./photosort sync <src_lib_dir> <target_lib_dir>` - Sync changes from the source library to the target library. This will copy any new photos and sidecars from the source library to the target library, and update all sidecars in the target library. No deletions will be made.
+
+After installation, you can invoke the program directly.
+
+* **Create a new library**:
+    The directory will be created if it does not exist.
+    ```bash
+    photosort create <path/to/library_dir>
+    ```
+
+* **Import photos into a library**:
+    Photos and their sidecars will be copied from the source directory into the library.
+    ```bash
+    photosort import <path/to/your/photos> <path/to/library_dir>
+    ```
+
+* **Update a library's database**:
+    This command scans the library for file changes and updates the database.
+    ```bash
+    photosort update <path/to/library_dir>
+    ```
+
+* **Sync two libraries**:
+    This performs a one-way sync from a source library to a target.
+    ```bash
+    photosort sync <path/to/source_library> <path/to/target_library>
+    ```
+
+* **Get library information**:
+    Displays the total number of photos in the library.
+    ```bash
+    photosort info <path/to/library_dir>
+    ```
 
 ## Todo
-- [ ] Add safeguards for missing exiftool
-- [ ] Add safeguards for when dir exists but library does not when library is expected
+- [ ] Add a startup check and a more user-friendly error message if `exiftool` is not found in the system's `PATH`.
