@@ -71,7 +71,7 @@ fn test_info_command() {
         .assert()
         .success()
         .stdout(
-            predicate::str::contains("Library at").and(predicate::str::contains("has 0 photos")),
+            predicate::str::contains("has 0 photos and 0 sidecars."),
         );
 
     // Import photos and check again
@@ -92,7 +92,7 @@ fn test_info_command() {
         .success()
         // There should be 5 photos after import.
         .stdout(
-            predicate::str::contains("Library at").and(predicate::str::contains("has 5 photos")),
+            predicate::str::contains("has 5 photos"),
         );
 }
 
