@@ -1,16 +1,21 @@
+// Core modules
 pub mod cli;
 pub mod database;
 pub mod error;
-pub mod library;
-pub mod photo;
-pub mod workers;
+pub mod media;
+pub mod sidecar;
 
-pub use cli::{Cli, Commands};
+// Feature modules
+pub mod backup;
+pub mod exif;
+pub mod import;
+pub mod push;
+pub mod scan;
+pub mod search;
+
+// Re-exports for convenience
+pub use cli::{Cli, Commands, MediaTypeFilter, OutputFormat};
 pub use database::Database;
-pub use error::PhotosortError;
-pub use library::{
-    DB_DATE_FORMAT, FP_DATE_FORMAT, Library, get_current_time, get_db_date_object,
-    get_db_date_string, get_local_tz, sync,
-};
-pub use photo::{ExifInfo, SourcePhotoInfo, SourceSidecarInfo};
-pub use workers::{hash_file, process_photo_file};
+pub use error::{PhotosortError, Result};
+pub use media::{ExifMetadata, Media, MediaType};
+pub use sidecar::Sidecar;
