@@ -387,7 +387,7 @@ pub fn push(
 
         // Also push any sidecars for this media
         if let Some(sidecars) = local_sidecars.get(&media.hash) {
-            for (sc_name, _) in sidecars {
+            for sc_name in sidecars.keys() {
                 let sc_path = lib.root().join(&media.relpath).join(sc_name);
                 if sc_path.exists() {
                     let result = push_file(&sc_path, &remote, &media.relpath)?;

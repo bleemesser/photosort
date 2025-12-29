@@ -147,7 +147,7 @@ fn parse_rsync_stats(output: &str) -> (usize, u64) {
         // Look for "Total transferred file size: X bytes"
         if line.contains("Total transferred file size:") {
             if let Some(num) = line.split(':').nth(1) {
-                let num = num.trim().split_whitespace().next().unwrap_or("0");
+                let num = num.split_whitespace().next().unwrap_or("0");
                 bytes = num.replace(",", "").parse().unwrap_or(0);
             }
         }

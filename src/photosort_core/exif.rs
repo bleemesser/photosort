@@ -82,7 +82,7 @@ fn parse_gps_string(s: &str) -> Option<f64> {
     let minutes: f64 = minutes_str.parse().ok()?;
     let seconds_str = parts[3].trim_end_matches('"').trim_end_matches('\'');
     let seconds: f64 = seconds_str.parse().ok()?;
-    let direction = parts.get(4).map(|s| s.chars().next()).flatten();
+    let direction = parts.get(4).and_then(|s| s.chars().next());
 
     let mut result = degrees + (minutes / 60.0) + (seconds / 3600.0);
 
@@ -149,7 +149,7 @@ pub fn extract_metadata(exiftool: &mut ExifTool, path: &Path) -> Result<Extracte
             std::fs::metadata(path)
                 .and_then(|m| m.created())
                 .map(OffsetDateTime::from)
-                .map_err(|e| PhotosortError::Io(e))
+                .map_err(PhotosortError::Io)
         })
         .unwrap_or_else(|_| {
             log::warn!(

@@ -3,8 +3,6 @@ use rusqlite::Connection;
 use rusqlite_migration::{M, Migrations};
 use std::path::Path;
 
-const SCHEMA_VERSION: i32 = 2;
-
 pub struct Database {
     conn: Connection,
 }
