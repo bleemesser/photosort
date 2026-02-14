@@ -9,6 +9,7 @@ use indicatif::{ProgressBar, ProgressStyle};
 use rayon::prelude::*;
 use rusqlite::params;
 use sha2::{Digest, Sha256};
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fs;
 use std::io::{self, Write};
@@ -16,6 +17,10 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use time::OffsetDateTime;
 use walkdir::WalkDir;
+
+thread_local! {
+    static EXIFTOOL: RefCell<Option<ExifTool>> = const { RefCell::new(None) };
+}
 
 const DB_FILE_NAME: &str = "library.db";
 
@@ -473,13 +478,29 @@ fn process_source_file(path: &Path) -> Result<Option<ImportCandidate>> {
     // Calculate hash
     let hash = hash_file(path)?;
 
-    // Extract EXIF metadata
-    let mut exiftool = ExifTool::new().map_err(|e| PhotosortError::Exiftool(e.to_string()))?;
-    let extracted = extract_metadata(&mut exiftool, path).unwrap_or_else(|e| {
-        log::warn!("Failed to extract metadata from {}: {}", path.display(), e);
-        crate::photosort_core::exif::ExtractedMetadata {
-            created_at: OffsetDateTime::now_local().unwrap_or_else(|_| OffsetDateTime::now_utc()),
-            exif: Default::default(),
+    // Extract EXIF metadata using thread-local ExifTool instance
+    let extracted = EXIFTOOL.with(|cell| {
+        let mut exiftool_opt = cell.borrow_mut();
+        if exiftool_opt.is_none() {
+            *exiftool_opt = ExifTool::new().ok();
+        }
+        match exiftool_opt.as_mut() {
+            Some(exiftool) => extract_metadata(exiftool, path).unwrap_or_else(|e| {
+                log::warn!("Failed to extract metadata from {}: {}", path.display(), e);
+                crate::photosort_core::exif::ExtractedMetadata {
+                    created_at: OffsetDateTime::now_local().unwrap_or_else(|_| OffsetDateTime::now_utc()),
+                    exif: Default::default(),
+                } // TODO: never gets called because exiftool doesn't really fail
+                // but exiftool may not find creation date fields correctly and we now
+                // have 2 fallbacks total
+            }),
+            None => {
+                log::warn!("ExifTool not available for {}", path.display());
+                crate::photosort_core::exif::ExtractedMetadata {
+                    created_at: OffsetDateTime::now_local().unwrap_or_else(|_| OffsetDateTime::now_utc()),
+                    exif: Default::default(),
+                }
+            }
         }
     });
 
