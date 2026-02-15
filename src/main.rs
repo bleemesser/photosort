@@ -38,7 +38,6 @@ fn main() -> Result<()> {
             source_dir,
             library_dir,
             dry_run,
-            r#move: _move,
         } => {
             let mut lib = Library::open(&library_dir)?;
             let stats = lib.import(&source_dir, dry_run)?;

@@ -40,10 +40,6 @@ pub enum Commands {
         /// Show what would be imported without making changes
         #[arg(long)]
         dry_run: bool,
-
-        /// Move files instead of copying (deletes originals after successful import)
-        #[arg(long)]
-        r#move: bool,
     },
 
     /// Scan library for filesystem changes
