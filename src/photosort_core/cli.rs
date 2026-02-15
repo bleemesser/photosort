@@ -103,7 +103,12 @@ pub enum Commands {
         library_dir: PathBuf,
     },
 
-    /// Backup library to a local directory
+    /// Backup library to a directory.
+    ///
+    /// Creates an exact mirror of the source library using rsync --delete.
+    /// Files deleted locally will also be deleted in the backup. The target
+    /// can be an empty directory or a previous backup — either way it will
+    /// be updated to exactly match the source.
     Backup {
         /// Source library
         #[arg(required = true)]
@@ -118,7 +123,14 @@ pub enum Commands {
         dry_run: bool,
     },
 
-    /// Push changes to a remote library (one-way sync)
+    /// Push changes to a different library (one-way sync).
+    ///
+    /// Additive sync: copies new media and newer sidecars from the local
+    /// library to the remote library. Files that exist only on the remote
+    /// are preserved — nothing is deleted. When a sidecar has been modified
+    /// on both sides, you will be prompted to resolve the conflict
+    /// interactively (keep local, keep remote, or skip). The remote must
+    /// already be an existing photosort library.
     Push {
         /// Local library (source of truth for new content)
         #[arg(required = true)]
