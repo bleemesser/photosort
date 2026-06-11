@@ -1,7 +1,7 @@
 use crate::photosort_core::error::{PhotosortError, Result};
 use crate::photosort_core::import::{Library, DB_DATE_FORMAT};
-use rusqlite::params;
-use std::collections::HashMap;
+use rusqlite::{params, Connection};
+use std::collections::{HashMap, HashSet};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -15,6 +15,8 @@ pub struct PushResult {
     pub bytes_transferred: u64,
     pub conflicts_resolved: usize,
     pub skipped: usize,
+    /// New media skipped because a different file already occupies the same remote path.
+    pub media_conflicts: usize,
 }
 
 /// A detected conflict between local and remote sidecars.
@@ -184,6 +186,10 @@ pub fn push(
     let local_sidecars = get_sidecar_map(lib.database().connection_ref())?;
     let remote_sidecars = get_sidecar_map(&remote_conn)?;
 
+    // Paths already occupied on the remote, used to avoid overwriting a different
+    // file that happens to share a date-folder and filename (e.g. camera file-number reuse).
+    let remote_paths = get_path_set(&remote_conn)?;
+
     // Categorize files
     let mut new_media: Vec<&MediaInfo> = Vec::new();
     let mut sidecar_updates: Vec<(&str, &SidecarInfo)> = Vec::new();
@@ -265,6 +271,7 @@ pub fn push(
             bytes_transferred: 0,
             conflicts_resolved: 0,
             skipped: 0,
+            media_conflicts: 0,
         });
     }
 
@@ -344,6 +351,20 @@ pub fn push(
             }
         }
 
+        let collisions: Vec<_> = new_media
+            .iter()
+            .filter(|m| remote_paths.contains(&format!("{}/{}", m.relpath, m.filename)))
+            .collect();
+        if !collisions.is_empty() {
+            println!(
+                "\n[!] {} of these would be SKIPPED: a different file already occupies the same remote path:",
+                collisions.len()
+            );
+            for m in collisions.iter().take(10) {
+                println!("  - {}/{}", m.relpath, m.filename);
+            }
+        }
+
         if !sidecar_updates.is_empty() {
             println!("\nWould update {} sidecars:", sidecar_updates.len());
             for (_, sc) in sidecar_updates.iter().take(10) {
@@ -364,6 +385,7 @@ pub fn push(
             bytes_transferred: 0,
             conflicts_resolved: 0,
             skipped: 0,
+            media_conflicts: 0,
         });
     }
 
@@ -374,12 +396,27 @@ pub fn push(
     let mut conflicts_resolved = 0;
     let mut skipped = 0;
 
+    // Track what was successfully pushed so we can register it in the remote DB.
+    let mut pushed_media_hashes: Vec<String> = Vec::new();
+    let mut pushed_sidecar_updates: Vec<(String, String)> = Vec::new();
+    let mut media_conflicts = 0usize;
+    let mut conflict_paths: Vec<String> = Vec::new();
+
     // Push new media files
     for media in &new_media {
+        let rel_file = format!("{}/{}", media.relpath, media.filename);
+        if remote_paths.contains(&rel_file) {
+            // A different file already occupies this remote path (same date+name, different
+            // content). Skip rather than silently overwrite it.
+            media_conflicts += 1;
+            conflict_paths.push(rel_file);
+            continue;
+        }
         let local_path = lib.root().join(&media.relpath).join(&media.filename);
         let result = push_file(&local_path, &remote, &media.relpath)?;
         if result {
             files_pushed += 1;
+            pushed_media_hashes.push(media.hash.clone());
             if let Ok(metadata) = std::fs::metadata(&local_path) {
                 bytes_transferred += metadata.len();
             }
@@ -410,6 +447,7 @@ pub fn push(
                 let result = push_file(&sc_path, &remote, &media.relpath)?;
                 if result {
                     sidecars_pushed += 1;
+                    pushed_sidecar_updates.push(((*hash).to_string(), sc.filename.clone()));
                     if let Ok(metadata) = std::fs::metadata(&sc_path) {
                         bytes_transferred += metadata.len();
                     }
@@ -427,6 +465,10 @@ pub fn push(
                         let result = push_file(&conflict.local_path, &remote, &media.relpath)?;
                         if result {
                             conflicts_resolved += 1;
+                            pushed_sidecar_updates.push((
+                                conflict.media_hash.clone(),
+                                conflict.sidecar_filename.clone(),
+                            ));
                             if let Ok(metadata) = std::fs::metadata(&conflict.local_path) {
                                 bytes_transferred += metadata.len();
                             }
@@ -441,6 +483,41 @@ pub fn push(
                     skipped += 1;
                 }
             }
+        }
+    }
+
+    if media_conflicts > 0 {
+        println!(
+            "\n[!] Skipped {} new media: a different file already occupies the same remote path \
+             (not overwritten):",
+            media_conflicts
+        );
+        for p in conflict_paths.iter().take(10) {
+            println!("  - {}", p);
+        }
+        if conflict_paths.len() > 10 {
+            println!("  ... and {} more", conflict_paths.len() - 10);
+        }
+    }
+
+    // Register pushed content in the remote DB so the remote library self-describes
+    // without needing a separate scan. For SSH remotes the remote DB was copied to a
+    // temp file, so push the updated copy back afterward.
+    if !pushed_media_hashes.is_empty() || !pushed_sidecar_updates.is_empty() {
+        let local_conn = lib.database().connection_ref();
+        remote_conn.execute_batch("BEGIN")?;
+        for hash in &pushed_media_hashes {
+            register_media_row(local_conn, &remote_conn, hash)?;
+        }
+        for (media_hash, sidecar_filename) in &pushed_sidecar_updates {
+            upsert_sidecar_row(local_conn, &remote_conn, media_hash, sidecar_filename)?;
+        }
+        remote_conn.execute_batch("COMMIT")?;
+
+        if remote.is_ssh {
+            drop(remote_conn);
+            let dest = format!("{}:{}/library.db", remote.get_ssh_host(), remote.get_ssh_path());
+            Command::new("scp").arg(&remote_db_path).arg(&dest).status()?;
         }
     }
 
@@ -466,7 +543,149 @@ pub fn push(
         bytes_transferred,
         conflicts_resolved,
         skipped,
+        media_conflicts,
     })
+}
+
+/// Copy a media row (and all its sidecars) from the local DB into the remote DB.
+fn register_media_row(local: &Connection, remote: &Connection, hash: &str) -> Result<()> {
+    let row = local.query_row(
+        "SELECT hash, filename, relpath, media_type, filetype, file_size, created_at, imported_at, \
+         camera_make, camera_model, lens, focal_length, aperture, shutter_speed, iso, gps_lat, gps_lon \
+         FROM media WHERE hash = ?1",
+        params![hash],
+        |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, String>(2)?,
+                r.get::<_, String>(3)?,
+                r.get::<_, String>(4)?,
+                r.get::<_, i64>(5)?,
+                r.get::<_, String>(6)?,
+                r.get::<_, String>(7)?,
+                r.get::<_, Option<String>>(8)?,
+                r.get::<_, Option<String>>(9)?,
+                r.get::<_, Option<String>>(10)?,
+                r.get::<_, Option<String>>(11)?,
+                r.get::<_, Option<String>>(12)?,
+                r.get::<_, Option<String>>(13)?,
+                r.get::<_, Option<i64>>(14)?,
+                r.get::<_, Option<f64>>(15)?,
+                r.get::<_, Option<f64>>(16)?,
+            ))
+        },
+    )?;
+
+    remote.execute(
+        "INSERT OR IGNORE INTO media \
+         (hash, filename, relpath, media_type, filetype, file_size, created_at, imported_at, \
+          camera_make, camera_model, lens, focal_length, aperture, shutter_speed, iso, gps_lat, gps_lon) \
+         VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17)",
+        params![
+            row.0, row.1, row.2, row.3, row.4, row.5, row.6, row.7, row.8, row.9, row.10, row.11,
+            row.12, row.13, row.14, row.15, row.16
+        ],
+    )?;
+
+    copy_sidecars(local, remote, hash)
+}
+
+/// Copy all sidecar rows for a media (by hash) from the local DB into the remote DB.
+fn copy_sidecars(local: &Connection, remote: &Connection, media_hash: &str) -> Result<()> {
+    let remote_id: i64 = remote.query_row(
+        "SELECT id FROM media WHERE hash = ?1",
+        params![media_hash],
+        |r| r.get(0),
+    )?;
+    let local_id: i64 =
+        local.query_row("SELECT id FROM media WHERE hash = ?1", params![media_hash], |r| {
+            r.get(0)
+        })?;
+
+    let mut stmt = local.prepare(
+        "SELECT filename, filetype, file_size, hash, modified_at FROM sidecars WHERE media_id = ?1",
+    )?;
+    let rows = stmt.query_map(params![local_id], |r| {
+        Ok((
+            r.get::<_, String>(0)?,
+            r.get::<_, String>(1)?,
+            r.get::<_, i64>(2)?,
+            r.get::<_, String>(3)?,
+            r.get::<_, String>(4)?,
+        ))
+    })?;
+    for row in rows {
+        let (filename, filetype, file_size, sc_hash, modified_at) = row?;
+        remote.execute(
+            "INSERT OR REPLACE INTO sidecars (media_id, filename, filetype, file_size, hash, modified_at) \
+             VALUES (?1,?2,?3,?4,?5,?6)",
+            params![remote_id, filename, filetype, file_size, sc_hash, modified_at],
+        )?;
+    }
+    Ok(())
+}
+
+/// Upsert a single sidecar row for an already-present remote media (sidecar updates, conflicts).
+fn upsert_sidecar_row(
+    local: &Connection,
+    remote: &Connection,
+    media_hash: &str,
+    sidecar_filename: &str,
+) -> Result<()> {
+    let remote_id: i64 = match remote.query_row(
+        "SELECT id FROM media WHERE hash = ?1",
+        params![media_hash],
+        |r| r.get(0),
+    ) {
+        Ok(id) => id,
+        Err(_) => return Ok(()),
+    };
+    let local_id: i64 =
+        local.query_row("SELECT id FROM media WHERE hash = ?1", params![media_hash], |r| {
+            r.get(0)
+        })?;
+
+    let sc = local.query_row(
+        "SELECT filename, filetype, file_size, hash, modified_at FROM sidecars \
+         WHERE media_id = ?1 AND filename = ?2",
+        params![local_id, sidecar_filename],
+        |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, i64>(2)?,
+                r.get::<_, String>(3)?,
+                r.get::<_, String>(4)?,
+            ))
+        },
+    );
+
+    if let Ok((filename, filetype, file_size, sc_hash, modified_at)) = sc {
+        remote.execute(
+            "INSERT OR REPLACE INTO sidecars (media_id, filename, filetype, file_size, hash, modified_at) \
+             VALUES (?1,?2,?3,?4,?5,?6)",
+            params![remote_id, filename, filetype, file_size, sc_hash, modified_at],
+        )?;
+    }
+    Ok(())
+}
+
+/// Get the set of "relpath/filename" entries present in a database's media table.
+fn get_path_set(conn: &Connection) -> Result<HashSet<String>> {
+    let mut set = HashSet::new();
+    let mut stmt = conn.prepare("SELECT relpath, filename FROM media")?;
+    let rows = stmt.query_map([], |row| {
+        Ok(format!(
+            "{}/{}",
+            row.get::<_, String>(0)?,
+            row.get::<_, String>(1)?
+        ))
+    })?;
+    for row in rows {
+        set.insert(row?);
+    }
+    Ok(set)
 }
 
 /// Get a map of hash -> MediaInfo from a database connection.

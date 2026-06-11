@@ -1,6 +1,6 @@
 use crate::photosort_core::database::Database;
 use crate::photosort_core::error::Result;
-use crate::photosort_core::import::{hash_file, Library, DB_DATE_FORMAT};
+use crate::photosort_core::import::{hash_file, register_inplace_file, Library, DB_DATE_FORMAT};
 use crate::photosort_core::media::detect_media_type;
 use rusqlite::params;
 use std::collections::HashSet;
@@ -16,6 +16,18 @@ pub struct ScanResult {
     pub new_files: Vec<PathBuf>,
     pub modified_sidecars: Vec<ModifiedSidecar>,
     pub orphaned_sidecars: Vec<OrphanedSidecar>,
+    pub modified_media: Vec<ModifiedMedia>,
+}
+
+#[derive(Debug)]
+pub struct ModifiedMedia {
+    pub id: i64,
+    pub filename: String,
+    pub relpath: String,
+    pub old_hash: String,
+    pub new_hash: String,
+    pub file_size: i64,
+    pub path: PathBuf,
 }
 
 #[derive(Debug)]
@@ -51,11 +63,13 @@ impl ScanResult {
             && self.new_files.is_empty()
             && self.modified_sidecars.is_empty()
             && self.orphaned_sidecars.is_empty()
+            && self.modified_media.is_empty()
     }
 }
 
-/// Scan a library for filesystem changes.
-pub fn scan_library(lib: &Library) -> Result<ScanResult> {
+/// Scan a library for filesystem changes. When `verify_media` is set, every media file is
+/// re-hashed to detect content drift (expensive: reads the whole library).
+pub fn scan_library(lib: &Library, verify_media: bool) -> Result<ScanResult> {
     let root = lib.root();
     let db = lib.database();
 
@@ -79,7 +93,60 @@ pub fn scan_library(lib: &Library) -> Result<ScanResult> {
     println!("Checking for new files...");
     result.new_files = find_new_files(db, root)?;
 
+    // Phase 5 (opt-in): re-hash media to detect content drift
+    if verify_media {
+        println!("Verifying media hashes (this reads every file)...");
+        result.modified_media = find_modified_media(db, root)?;
+    }
+
     Ok(result)
+}
+
+/// Find media whose on-disk content no longer matches the hash stored in the database.
+/// Re-hashes every media file, so this is only run when explicitly requested.
+fn find_modified_media(db: &Database, root: &Path) -> Result<Vec<ModifiedMedia>> {
+    let mut modified = Vec::new();
+
+    let mut stmt = db
+        .connection_ref()
+        .prepare("SELECT id, filename, relpath, hash FROM media")?;
+    let rows = stmt.query_map([], |row| {
+        Ok((
+            row.get::<_, i64>(0)?,
+            row.get::<_, String>(1)?,
+            row.get::<_, String>(2)?,
+            row.get::<_, String>(3)?,
+        ))
+    })?;
+
+    let mut total = 0usize;
+    for row in rows {
+        let (id, filename, relpath, old_hash) = row?;
+        let path = root.join(&relpath).join(&filename);
+        if !path.exists() {
+            continue; // missing files handled separately
+        }
+        total += 1;
+        if total % 100 == 0 {
+            println!("  verified {}", total);
+        }
+        if let Ok(new_hash) = hash_file(&path) {
+            if new_hash != old_hash {
+                let file_size = std::fs::metadata(&path).map(|m| m.len() as i64).unwrap_or(0);
+                modified.push(ModifiedMedia {
+                    id,
+                    filename,
+                    relpath,
+                    old_hash,
+                    new_hash,
+                    file_size,
+                    path,
+                });
+            }
+        }
+    }
+
+    Ok(modified)
 }
 
 /// Find files that are in the database but missing from disk.
@@ -272,6 +339,7 @@ pub fn handle_scan_results(lib: &mut Library, result: &ScanResult) -> Result<()>
     println!("  Missing files:      {}", result.missing_files.len());
     println!("  Orphaned sidecars:  {}", result.orphaned_sidecars.len());
     println!("  Modified sidecars:  {}", result.modified_sidecars.len());
+    println!("  Modified media:     {}", result.modified_media.len());
     println!("  New files:          {}", result.new_files.len());
     println!("─────────────────────────────────\n");
 
@@ -290,11 +358,47 @@ pub fn handle_scan_results(lib: &mut Library, result: &ScanResult) -> Result<()>
         handle_modified_sidecars(lib, &result.modified_sidecars)?;
     }
 
+    // Handle modified media (content drift at a known path)
+    if !result.modified_media.is_empty() {
+        handle_modified_media(lib, &result.modified_media)?;
+    }
+
     // Handle new files
     if !result.new_files.is_empty() {
         handle_new_files(lib, &result.new_files)?;
     }
 
+    Ok(())
+}
+
+fn handle_modified_media(lib: &mut Library, modified: &[ModifiedMedia]) -> Result<()> {
+    println!("Modified media ({}):", modified.len());
+    for m in modified.iter().take(10) {
+        println!("  - {}/{} (content changed on disk)", m.relpath, m.filename);
+    }
+    if modified.len() > 10 {
+        println!("  ... and {} more", modified.len() - 10);
+    }
+
+    print!("\nUpdate database with new media hashes? [Y/n]: ");
+    io::stdout().flush()?;
+    let mut input = String::new();
+    io::stdin().read_line(&mut input)?;
+    if input.trim().eq_ignore_ascii_case("n") {
+        println!("Skipped.");
+        return Ok(());
+    }
+
+    let conn = lib.database_mut().connection();
+    let tx = conn.transaction()?;
+    for m in modified {
+        tx.execute(
+            "UPDATE media SET hash = ?1, file_size = ?2 WHERE id = ?3",
+            params![m.new_hash, m.file_size, m.id],
+        )?;
+    }
+    tx.commit()?;
+    println!("Updated {} media records.", modified.len());
     Ok(())
 }
 
@@ -413,19 +517,35 @@ fn handle_modified_sidecars(lib: &mut Library, modified: &[ModifiedSidecar]) -> 
     Ok(())
 }
 
-fn handle_new_files(_lib: &mut Library, new_files: &[PathBuf]) -> Result<()> {
-    println!("\nNew files found ({}):", new_files.len());
-    for f in new_files.iter().take(10) {
-        println!("  - {}", f.display());
-    }
-    if new_files.len() > 10 {
-        println!("  ... and {} more", new_files.len() - 10);
+fn handle_new_files(lib: &mut Library, new_files: &[PathBuf]) -> Result<()> {
+    println!(
+        "\nRegistering {} untracked file(s) into the database...",
+        new_files.len()
+    );
+
+    let root = lib.root().to_path_buf();
+    let now = OffsetDateTime::now_local().unwrap_or_else(|_| OffsetDateTime::now_utc());
+    let imported_at_str = now.format(DB_DATE_FORMAT).unwrap();
+
+    let conn = lib.database_mut().connection();
+    let tx = conn.transaction()?;
+
+    let mut media_added = 0u64;
+    let mut sidecars_added = 0u64;
+    for (i, path) in new_files.iter().enumerate() {
+        let (m, s) = register_inplace_file(&tx, &root, path, &imported_at_str)?;
+        media_added += m;
+        sidecars_added += s;
+        if (i + 1) % 100 == 0 || i + 1 == new_files.len() {
+            println!("  hashed {}/{}", i + 1, new_files.len());
+        }
     }
 
-    println!("\nThese files exist on disk but are not in the database.");
-    println!("You can import them with: photosort import <library> <library>");
-    println!("(Using the library itself as the source will add untracked files)");
-
+    tx.commit()?;
+    println!(
+        "Self-heal complete: registered {} media and {} sidecars into the database.",
+        media_added, sidecars_added
+    );
     Ok(())
 }
 

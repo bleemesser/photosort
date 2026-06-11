@@ -47,6 +47,10 @@ pub enum Commands {
         /// Library to scan
         #[arg(required = true)]
         library_dir: PathBuf,
+
+        /// Re-hash every media file to detect content drift (expensive)
+        #[arg(long)]
+        verify_media: bool,
     },
 
     /// Search for media matching filters

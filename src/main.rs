@@ -53,9 +53,12 @@ fn main() -> Result<()> {
             }
         }
 
-        Commands::Scan { library_dir } => {
+        Commands::Scan {
+            library_dir,
+            verify_media,
+        } => {
             let mut lib = Library::open(&library_dir)?;
-            let result = photosort::photosort_core::scan::scan_library(&lib)?;
+            let result = photosort::photosort_core::scan::scan_library(&lib, verify_media)?;
             photosort::photosort_core::scan::handle_scan_results(&mut lib, &result)?;
         }
 
@@ -178,6 +181,12 @@ fn main() -> Result<()> {
                 }
                 if result.skipped > 0 {
                     println!("  {} skipped", result.skipped);
+                }
+                if result.media_conflicts > 0 {
+                    println!(
+                        "  {} media skipped (remote path occupied by different content)",
+                        result.media_conflicts
+                    );
                 }
             }
         }

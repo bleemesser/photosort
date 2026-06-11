@@ -539,6 +539,78 @@ fn process_source_file(path: &Path) -> Result<Option<ImportCandidate>> {
     }))
 }
 
+/// Register a media file that already lives in the library tree into the database,
+/// at its current relative path (the file is not moved). Also registers its sidecars.
+/// Returns (media_added, sidecars_added). Used by `scan` to self-heal untracked files.
+pub(crate) fn register_inplace_file(
+    tx: &rusqlite::Transaction,
+    root: &Path,
+    path: &Path,
+    imported_at_str: &str,
+) -> Result<(u64, u64)> {
+    let candidate = match process_source_file(path)? {
+        Some(c) => c,
+        None => return Ok((0, 0)),
+    };
+
+    let rel_dir = path
+        .parent()
+        .and_then(|p| p.strip_prefix(root).ok())
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_default();
+    let created_at_str = candidate.created_at.format(DB_DATE_FORMAT).unwrap();
+
+    let media_added = tx.execute(
+        "INSERT OR IGNORE INTO media (hash, filename, relpath, media_type, filetype, file_size, created_at, imported_at,
+                            camera_make, camera_model, lens, focal_length, aperture, shutter_speed, iso, gps_lat, gps_lon)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
+        params![
+            candidate.hash,
+            candidate.filename,
+            rel_dir,
+            candidate.media_type.as_str(),
+            candidate.filetype,
+            candidate.file_size as i64,
+            created_at_str,
+            imported_at_str,
+            candidate.exif.camera_make,
+            candidate.exif.camera_model,
+            candidate.exif.lens,
+            candidate.exif.focal_length,
+            candidate.exif.aperture,
+            candidate.exif.shutter_speed,
+            candidate.exif.iso,
+            candidate.exif.gps_lat,
+            candidate.exif.gps_lon,
+        ],
+    )? as u64;
+
+    let media_id: i64 = tx.query_row(
+        "SELECT id FROM media WHERE hash = ?1",
+        params![candidate.hash],
+        |r| r.get(0),
+    )?;
+
+    let mut sidecars_added = 0u64;
+    for sc in &candidate.sidecars {
+        let modified_at_str = sc.modified_at.format(DB_DATE_FORMAT).unwrap();
+        sidecars_added += tx.execute(
+            "INSERT OR IGNORE INTO sidecars (media_id, filename, filetype, file_size, hash, modified_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![
+                media_id,
+                sc.filename,
+                sc.filetype,
+                sc.file_size as i64,
+                sc.hash,
+                modified_at_str,
+            ],
+        )? as u64;
+    }
+
+    Ok((media_added, sidecars_added))
+}
+
 /// Process a sidecar file.
 fn process_sidecar(path: &Path) -> Result<SidecarCandidate> {
     let metadata = fs::metadata(path)?;
